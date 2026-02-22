@@ -245,43 +245,85 @@ class Translator:
         print(f"{Fore.YELLOW}{EMOJI['INFO']} Languages are now integrated into the package, no need to download.{Style.RESET_ALL}")
         return False
             
+    def _get_fallback_menu_en(self):
+        """Full English menu fallback when locale files cannot be loaded (e.g. in compiled exe)."""
+        return {
+            "title": "Available Options",
+            "exit": "Exit Program",
+            "reset": "Reset Machine ID",
+            "register": "Register New Cursor Account",
+            "register_google": "Register with Self Google Account",
+            "register_github": "Register with Self GitHub Account",
+            "register_manual": "Register Cursor with Custom Email",
+            "quit": "Close Cursor Application",
+            "select_language": "Change Language",
+            "select_chrome_profile": "Select Chrome Profile",
+            "input_choice": "Please enter your choice ({choices})",
+            "invalid_choice": "Invalid selection. Please enter a number from {choices}",
+            "program_terminated": "Program was terminated by user",
+            "error_occurred": "An error occurred: {error}. Please try again",
+            "press_enter": "Press Enter to Exit",
+            "disable_auto_update": "Disable Cursor Auto-Update",
+            "totally_reset": "Totally Reset Cursor",
+            "contribute": "Contribute to the Project",
+            "config": "Show Config",
+            "delete_google_account": "Delete Cursor Google Account",
+            "bypass_version_check": "Bypass Cursor Version Check",
+            "check_user_authorized": "Check User Authorized",
+            "bypass_token_limit": "Bypass Token Limit",
+            "restore_machine_id": "Restore Machine ID from Backup",
+            "manual_custom_auth": "Manual Custom Auth",
+            "delete_remote_user": "Delete user on remote node (SSH)",
+        }
+
     def load_translations(self):
         """Load all available translations from the integrated package"""
+        loaded_any = False
         try:
-            # Collection of languages we've successfully loaded
             loaded_languages = set()
-            
             locales_paths = []
-            
-            # Check for PyInstaller bundle first
-            if hasattr(sys, '_MEIPASS'):
+
+            # PyInstaller / frozen exe: _MEIPASS is the temp extract dir where 'locales' is bundled
+            if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
                 locales_paths.append(os.path.join(sys._MEIPASS, 'locales'))
-            
-            # Check script directory next
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            locales_paths.append(os.path.join(script_dir, 'locales'))
-            
-            # Also check current working directory
+                # Exe directory (user may place locales next to the exe)
+                exe_dir = os.path.dirname(sys.executable)
+                if exe_dir not in (os.path.dirname(p) for p in locales_paths):
+                    locales_paths.append(os.path.join(exe_dir, 'locales'))
+
+            # Non-frozen or extra fallbacks
+            if not getattr(sys, 'frozen', False):
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                locales_paths.append(os.path.join(script_dir, 'locales'))
             locales_paths.append(os.path.join(os.getcwd(), 'locales'))
-            
+
             for locales_dir in locales_paths:
-                if os.path.exists(locales_dir) and os.path.isdir(locales_dir):
-                    for file in os.listdir(locales_dir):
-                        if file.endswith('.json'):
-                            lang_code = file[:-5]  # Remove .json
-                            try:
-                                with open(os.path.join(locales_dir, file), 'r', encoding='utf-8') as f:
-                                    self.translations[lang_code] = json.load(f)
-                                    loaded_languages.add(lang_code)
-                                    loaded_any = True
-                            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                                print(f"{Fore.RED}{EMOJI['ERROR']} Error loading {file}: {e}{Style.RESET_ALL}")
-                                continue
+                if not os.path.exists(locales_dir) or not os.path.isdir(locales_dir):
+                    continue
+                try:
+                    files = os.listdir(locales_dir)
+                except OSError:
+                    continue
+                for file in files:
+                    if not file.endswith('.json'):
+                        continue
+                    lang_code = file[:-5]
+                    try:
+                        path = os.path.join(locales_dir, file)
+                        with open(path, 'r', encoding='utf-8') as f:
+                            self.translations[lang_code] = json.load(f)
+                        loaded_languages.add(lang_code)
+                        loaded_any = True
+                    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+                        print(f"{Fore.RED}{EMOJI['ERROR']} Error loading {file}: {e}{Style.RESET_ALL}")
+                        continue
+
+            if not loaded_any:
+                self.translations['en'] = {"menu": self._get_fallback_menu_en()}
 
         except Exception as e:
             print(f"{Fore.RED}{EMOJI['ERROR']} Failed to load translations: {e}{Style.RESET_ALL}")
-            # Create at least minimal English translations for basic functionality
-            self.translations['en'] = {"menu": {"title": "Menu", "exit": "Exit", "invalid_choice": "Invalid choice"}}
+            self.translations['en'] = {"menu": self._get_fallback_menu_en()}
     
     def fix_arabic(self, text):
         if self.current_language == 'ar' and arabic_reshaper and get_display:
@@ -680,12 +722,12 @@ def check_latest_version():
                 print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {translator.get('updater.up_to_date')}{Style.RESET_ALL}")
             
     except requests.exceptions.RequestException as e:
-        print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('updater.network_error', error=str(e))}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('updater.github_api_failed', fallback='updater.github_api_failed')}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('updater.continue_anyway')}{Style.RESET_ALL}")
         return
-        
+
     except Exception as e:
-        print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('updater.check_failed', error=str(e))}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('updater.github_api_failed', fallback='updater.github_api_failed')}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('updater.continue_anyway')}{Style.RESET_ALL}")
         return
 

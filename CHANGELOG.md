@@ -1,5 +1,8 @@
 # Change Log
 
+## v1.12.1
+1. **Exe compilé** : correction de l’affichage du menu (options 0–18) — chemins locales priorisés pour frozen (_MEIPASS, exe dir), fallback menu complet en anglais si chargement des JSON échoue
+
 ## v1.12.0 (étude / fork)
 1. **Inscription** : email suggéré utilisé directement, plus de saisie « yes »
 2. **Nœud distant (SSH)** : récupération du code de vérification depuis Maildir (`~/Maildir/new/`) en plus du mbox ; script optionnel `read-user-maildir.sh` + sudo NOPASSWD pour éviter la demande de mot de passe
