@@ -1,5 +1,12 @@
 # Change Log
 
+## v1.12.0 (étude / fork)
+1. **Inscription** : email suggéré utilisé directement, plus de saisie « yes »
+2. **Nœud distant (SSH)** : récupération du code de vérification depuis Maildir (`~/Maildir/new/`) en plus du mbox ; script optionnel `read-user-maildir.sh` + sudo NOPASSWD pour éviter la demande de mot de passe
+3. **Extraction du code** : filtrage des faux positifs (ex. 646464 CSS), patterns contexte (vérification est, HTML, quoted-printable) pour le code à 6 chiffres
+4. **Onboarding post-vérification** : franchissement automatique des écrans avant refresh du token — Data Sharing (toggle Share Data OFF + Continue), Customize Your Experience (Maybe Later), Trial (Skip for now), Review Settings (Continue) ; jusqu’à 6 étapes + rappel après ouverture de la page paramètres
+5. **Turnstile** : délai et 3 tentatives après saisie du code (manuel ou nœud)
+
 ## v1.11.03
 1. Update: TempMailPlus Cursor Email Detection Logic | 更新 TempMailPlus Cursor 邮件识别逻辑
 2. Fix: Windows User Directory Path | 修正 windows 环境下用户目录的获取方式

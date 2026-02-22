@@ -12,7 +12,8 @@ import subprocess
 from config import get_config, force_update_config
 import shutil
 import re
-from utils import get_user_documents_path  
+from utils import get_user_documents_path
+from logger import setup_logging  
 
 # Add these imports for Arabic support
 try:
@@ -378,7 +379,8 @@ def print_menu():
         14: f"{Fore.GREEN}14{Style.RESET_ALL}. {EMOJI['BACKUP']}  {translator.get('menu.restore_machine_id')}",
         15: f"{Fore.GREEN}15{Style.RESET_ALL}. {EMOJI['ERROR']}  {translator.get('menu.delete_google_account')}",
         16: f"{Fore.GREEN}16{Style.RESET_ALL}. {EMOJI['SETTINGS']}  {translator.get('menu.select_chrome_profile')}",
-        17: f"{Fore.GREEN}17{Style.RESET_ALL}. {EMOJI['UPDATE']}  {translator.get('menu.manual_custom_auth')}"
+        17: f"{Fore.GREEN}17{Style.RESET_ALL}. {EMOJI['UPDATE']}  {translator.get('menu.manual_custom_auth')}",
+        18: f"{Fore.GREEN}18{Style.RESET_ALL}. {EMOJI['SETTINGS']}  {translator.get('menu.delete_remote_user')}"
     }
     
     # Automatically calculate the number of menu items in the left and right columns
@@ -688,6 +690,7 @@ def check_latest_version():
         return
 
 def main():
+    setup_logging()
     # Check for admin privileges if running as executable on Windows only
     if platform.system() == 'Windows' and is_frozen() and not is_admin():
         print(f"{Fore.YELLOW}{EMOJI['ADMIN']} {translator.get('menu.admin_required')}{Style.RESET_ALL}")
@@ -711,7 +714,7 @@ def main():
     
     while True:
         try:
-            choice_num = 17
+            choice_num = 18
             choice = input(f"\n{EMOJI['ARROW']} {Fore.CYAN}{translator.get('menu.input_choice', choices=f'0-{choice_num}')}: {Style.RESET_ALL}")
 
             match choice:
@@ -788,6 +791,22 @@ def main():
                 case "17":
                     import manual_custom_auth
                     manual_custom_auth.main(translator)
+                    print_menu()
+                case "18":
+                    from remote_user_manager import delete_remote_user
+                    cfg = get_config(translator)
+                    if cfg and cfg.has_section('RemoteNode') and cfg.get('RemoteNode', 'enabled', fallback='false').strip().lower() in ('true', '1', 'yes'):
+                        host = cfg.get('RemoteNode', 'host', fallback='').strip()
+                        user = cfg.get('RemoteNode', 'user', fallback='pi').strip() or 'pi'
+                        remove_home = cfg.get('RemoteNode', 'remove_home_on_delete', fallback='true').strip().lower() in ('true', '1', 'yes')
+                        if host:
+                            uname = input(f"{translator.get('remote_user.enter_username') if translator else 'Nom d\'utilisateur à supprimer:'} ").strip()
+                            if uname:
+                                delete_remote_user(uname, host, user, remove_home=remove_home, translator=translator)
+                        else:
+                            print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('remote_user.host_not_configured') if translator else 'RemoteNode host non configuré.'}{Style.RESET_ALL}")
+                    else:
+                        print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('remote_user.not_enabled') if translator else 'RemoteNode désactivé. Activez-le dans la config (option 10).'}{Style.RESET_ALL}")
                     print_menu()
                 case _:
                     print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")

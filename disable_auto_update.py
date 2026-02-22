@@ -109,18 +109,18 @@ class AutoUpdateDisabler:
     def _kill_cursor_processes(self):
         """End all Cursor processes"""
         try:
-            print(f"{Fore.CYAN}{EMOJI['PROCESS']} {self.translator.get('update.killing_processes') if self.translator else '正在结束 Cursor 进程...'}{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}{EMOJI['PROCESS']} {self.translator.get('update.killing_processes') if self.translator else 'Arrêt des processus Cursor...'}{Style.RESET_ALL}")
             
             if self.system == "Windows":
                 subprocess.run(['taskkill', '/F', '/IM', 'Cursor.exe', '/T'], capture_output=True)
             else:
                 subprocess.run(['pkill', '-f', 'Cursor'], capture_output=True)
                 
-            print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('update.processes_killed') if self.translator else 'Cursor 进程已结束'}{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('update.processes_killed') if self.translator else 'Processus Cursor terminés'}{Style.RESET_ALL}")
             return True
             
         except Exception as e:
-            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('update.kill_process_failed', error=str(e)) if self.translator else f'结束进程失败: {e}'}{Style.RESET_ALL}")
+            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('update.kill_process_failed', error=str(e)) if self.translator else f'Échec de l\'arrêt des processus: {e}'}{Style.RESET_ALL}")
             return False
 
     def _remove_updater_directory(self):
@@ -128,9 +128,9 @@ class AutoUpdateDisabler:
         try:
             updater_path = self.updater_path
             if not updater_path:
-                raise OSError(self.translator.get('update.unsupported_os', system=self.system) if self.translator else f"不支持的操作系统: {self.system}")
+                raise OSError(self.translator.get('update.unsupported_os', system=self.system) if self.translator else f"Système d'exploitation non supporté: {self.system}")
 
-            print(f"{Fore.CYAN}{EMOJI['FOLDER']} {self.translator.get('update.removing_directory') if self.translator else '正在删除更新程序目录...'}{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}{EMOJI['FOLDER']} {self.translator.get('update.removing_directory') if self.translator else 'Suppression du répertoire de mise à jour...'}{Style.RESET_ALL}")
             
             if os.path.exists(updater_path):
                 try:
@@ -138,13 +138,13 @@ class AutoUpdateDisabler:
                         shutil.rmtree(updater_path)
                     else:
                         os.remove(updater_path)
-                    print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('update.directory_removed') if self.translator else '更新程序目录已删除'}{Style.RESET_ALL}")
+                    print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('update.directory_removed') if self.translator else 'Répertoire de mise à jour supprimé'}{Style.RESET_ALL}")
                 except PermissionError:
-                    print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('update.directory_locked', path=updater_path) if self.translator else f'更新程序目录已被锁定，跳过删除: {updater_path}'}{Style.RESET_ALL}")
+                    print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('update.directory_locked', path=updater_path) if self.translator else f'Répertoire verrouillé, suppression ignorée: {updater_path}'}{Style.RESET_ALL}")
             return True
             
         except Exception as e:
-            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('update.remove_directory_failed', error=str(e)) if self.translator else f'删除目录失败: {e}'}{Style.RESET_ALL}")
+            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('update.remove_directory_failed', error=str(e)) if self.translator else f'Échec de la suppression du répertoire: {e}'}{Style.RESET_ALL}")
             return True
     
     def _clear_update_yml_file(self):
@@ -152,103 +152,103 @@ class AutoUpdateDisabler:
         try:
             update_yml_path = self.update_yml_path
             if not update_yml_path:
-                raise OSError(self.translator.get('update.unsupported_os', system=self.system) if self.translator else f"不支持的操作系统: {self.system}")
+                raise OSError(self.translator.get('update.unsupported_os', system=self.system) if self.translator else f"Système d'exploitation non supporté: {self.system}")
             
-            print(f"{Fore.CYAN}{EMOJI['FILE']} {self.translator.get('update.clearing_update_yml') if self.translator else '正在清空更新配置文件...'}{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}{EMOJI['FILE']} {self.translator.get('update.clearing_update_yml') if self.translator else 'Vidage du fichier de configuration de mise à jour...'}{Style.RESET_ALL}")
             
             if os.path.exists(update_yml_path):
                 try:
                     with open(update_yml_path, 'w') as f:
                         f.write('')
-                    print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('update.update_yml_cleared') if self.translator else '更新配置文件已清空'}{Style.RESET_ALL}")
+                    print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('update.update_yml_cleared') if self.translator else 'Fichier de configuration de mise à jour vidé'}{Style.RESET_ALL}")
                 except PermissionError:
-                    print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('update.yml_locked') if self.translator else '更新配置文件已被锁定，跳过清空'}{Style.RESET_ALL}")
+                    print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('update.yml_locked') if self.translator else 'Fichier de configuration verrouillé, vidage ignoré'}{Style.RESET_ALL}")
             else:
-                print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('update.update_yml_not_found') if self.translator else '更新配置文件不存在'}{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('update.update_yml_not_found') if self.translator else 'Fichier de configuration de mise à jour introuvable'}{Style.RESET_ALL}")
             return True
                 
         except Exception as e:
-            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('update.clear_update_yml_failed', error=str(e)) if self.translator else f'清空更新配置文件失败: {e}'}{Style.RESET_ALL}")
+            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('update.clear_update_yml_failed', error=str(e)) if self.translator else f'Échec du vidage du fichier de configuration: {e}'}{Style.RESET_ALL}")
             return False
 
     def _create_blocking_file(self):
         """Create blocking files"""
         try:
-            # 检查 updater_path
+            # Vérifier updater_path
             updater_path = self.updater_path
             if not updater_path:
-                raise OSError(self.translator.get('update.unsupported_os', system=self.system) if self.translator else f"不支持的操作系统: {self.system}")
+                raise OSError(self.translator.get('update.unsupported_os', system=self.system) if self.translator else f"Système d'exploitation non supporté: {self.system}")
 
-            print(f"{Fore.CYAN}{EMOJI['FILE']} {self.translator.get('update.creating_block_file') if self.translator else '正在创建阻止文件...'}{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}{EMOJI['FILE']} {self.translator.get('update.creating_block_file') if self.translator else 'Création du fichier de blocage...'}{Style.RESET_ALL}")
             
-            # 创建 updater_path 阻止文件
+            # Créer le fichier de blocage updater_path
             try:
                 os.makedirs(os.path.dirname(updater_path), exist_ok=True)
                 open(updater_path, 'w').close()
                 
-                # 设置 updater_path 为只读
+                # Définir updater_path en lecture seule
                 if self.system == "Windows":
                     os.system(f'attrib +r "{updater_path}"')
                 else:
-                    os.chmod(updater_path, 0o444)  # 设置为只读
+                    os.chmod(updater_path, 0o444)  # Définir en lecture seule
                 
-                print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('update.block_file_created') if self.translator else '阻止文件已创建'}: {updater_path}{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('update.block_file_created') if self.translator else 'Fichier de blocage créé'}: {updater_path}{Style.RESET_ALL}")
             except PermissionError:
-                print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('update.block_file_locked') if self.translator else '阻止文件已被锁定，跳过创建'}{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('update.block_file_locked') if self.translator else 'Fichier verrouillé, création ignorée'}{Style.RESET_ALL}")
             
-            # 检查 update_yml_path
+            # Vérifier update_yml_path
             update_yml_path = self.update_yml_path
             if update_yml_path and os.path.exists(os.path.dirname(update_yml_path)):
                 try:
-                    # 创建 update_yml_path 阻止文件
+                    # Créer le fichier de blocage update_yml_path
                     with open(update_yml_path, 'w') as f:
                         f.write('# This file is locked to prevent auto-updates\nversion: 0.0.0\n')
                     
-                    # 设置 update_yml_path 为只读
+                    # Définir update_yml_path en lecture seule
                     if self.system == "Windows":
                         os.system(f'attrib +r "{update_yml_path}"')
                     else:
-                        os.chmod(update_yml_path, 0o444)  # 设置为只读
+                        os.chmod(update_yml_path, 0o444)  # Définir en lecture seule
                     
-                    print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('update.yml_locked') if self.translator else '更新配置文件已锁定'}: {update_yml_path}{Style.RESET_ALL}")
+                    print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('update.yml_locked') if self.translator else 'Fichier de configuration verrouillé'}: {update_yml_path}{Style.RESET_ALL}")
                 except PermissionError:
-                    print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('update.yml_already_locked') if self.translator else '更新配置文件已被锁定，跳过修改'}{Style.RESET_ALL}")
+                    print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('update.yml_already_locked') if self.translator else 'Fichier de configuration déjà verrouillé, modification ignorée'}{Style.RESET_ALL}")
             
             return True
             
         except Exception as e:
-            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('update.create_block_file_failed', error=str(e)) if self.translator else f'创建阻止文件失败: {e}'}{Style.RESET_ALL}")
-            return True  # 返回 True 以继续执行后续步骤
+            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('update.create_block_file_failed', error=str(e)) if self.translator else f'Échec de la création du fichier de blocage: {e}'}{Style.RESET_ALL}")
+            return True  # Retourner True pour continuer l'exécution
 
     def disable_auto_update(self):
         """Disable auto update"""
         try:
-            print(f"{Fore.CYAN}{EMOJI['INFO']} {self.translator.get('update.start_disable') if self.translator else '开始禁用自动更新...'}{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}{EMOJI['INFO']} {self.translator.get('update.start_disable') if self.translator else 'Démarrage de la désactivation de la mise à jour automatique...'}{Style.RESET_ALL}")
             
-            # 1. End processes
+            # 1. Arrêter les processus
             if not self._kill_cursor_processes():
                 return False
                 
-            # 2. Delete directory - 即使失败也继续执行
+            # 2. Supprimer le répertoire - continuer même en cas d'échec
             self._remove_updater_directory()
                 
-            # 3. Clear update.yml file
+            # 3. Vider le fichier update.yml
             if not self._clear_update_yml_file():
                 return False
                 
-            # 4. Create blocking file
+            # 4. Créer le fichier de blocage
             if not self._create_blocking_file():
                 return False
                 
-            # 5. Remove update URL from product.json
+            # 5. Supprimer l'URL de mise à jour de product.json
             if not self._remove_update_url():
                 return False
                 
-            print(f"{Fore.GREEN}{EMOJI['CHECK']} {self.translator.get('update.disable_success') if self.translator else '自动更新已禁用'}{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}{EMOJI['CHECK']} {self.translator.get('update.disable_success') if self.translator else 'Mise à jour automatique désactivée'}{Style.RESET_ALL}")
             return True
             
         except Exception as e:
-            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('update.disable_failed', error=str(e)) if self.translator else f'禁用自动更新失败: {e}'}{Style.RESET_ALL}")
+            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('update.disable_failed', error=str(e)) if self.translator else f'Échec de la désactivation de la mise à jour automatique: {e}'}{Style.RESET_ALL}")
             return False
 
 def run(translator=None):

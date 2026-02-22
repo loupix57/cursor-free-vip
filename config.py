@@ -255,6 +255,24 @@ def setup_config(translator=None):
             'email': '',
             'epin': ''
         }
+        # Local email (IMAP) - read verification code from your own mailbox
+        default_config['LocalEmail'] = {
+            'enabled': 'false',
+            'host': 'imap.gmail.com',
+            'port': '993',
+            'user': '',
+            'password': '',
+            'use_ssl': 'true',
+            'folder': 'INBOX'
+        }
+        # Nœud distant SSH : créer/supprimer les comptes utilisateur (adduser / deluser)
+        default_config['RemoteNode'] = {
+            'enabled': 'false',
+            'host': 'remote-host.lan',
+            'user': 'pi',
+            'create_user_on_register': 'true',
+            'remove_home_on_delete': 'true'
+        }
 
         # Read existing configuration and merge
         if os.path.exists(config_file):

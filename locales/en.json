@@ -36,7 +36,25 @@
         "language_config_saved": "Language configuration saved successfully",
         "lang_invalid_choice": "Invalid choice. Please enter one of the following options: ({lang_choices})",
         "restore_machine_id": "Restore Machine ID from Backup",
-        "manual_custom_auth": "Manual Custom Auth"
+        "manual_custom_auth": "Manual Custom Auth",
+        "delete_remote_user": "Delete user on remote node (SSH)"
+    },
+    "remote_user": {
+        "creating": "Creating user {username} on {host}...",
+        "created": "User {username} created on {host}",
+        "create_failed": "Failed to create user {username}: {error}",
+        "timeout": "Timeout connecting to {host}",
+        "deleting": "Deleting user {username} on {host}...",
+        "deleted": "User {username} deleted on {host}",
+        "delete_failed": "Failed to delete user {username}: {error}",
+        "enter_username": "Username to delete:",
+        "host_not_configured": "RemoteNode host not configured",
+        "not_enabled": "RemoteNode is disabled. Enable it in config (option 10)",
+        "same_password_as_cursor": "Login on node: same password as Cursor (shown above). Username = part before @ with dots → underscores (e.g. iamara_lopez).",
+        "enable_in_config": "To create a Linux account on the remote node, enable [RemoteNode] in config (menu option 10).",
+        "fetching_code_from_node": "Fetching verification code from mailbox on remote node...",
+        "code_retrieved": "Verification code retrieved from node.",
+        "code_not_found_fallback": "Code not found on node, please enter it manually."
     },
     "languages": {
         "ar": "Arabic",
@@ -218,6 +236,8 @@
         "no_new_processes_detected": "No new {browser} processes detected to track",
         "could_not_track_processes": "Could not track {browser} processes: {error}",
         "using_tempmail_plus": "Using TempMailPlus for email verification",
+        "using_local_email": "Using local email (IMAP) to read verification code",
+        "local_email_failed": "Local email failed: {error}. Enter code manually.",
         "tempmail_plus_enabled": "TempMailPlus is enabled",
         "tempmail_plus_disabled": "TempMailPlus is disabled",
         "tempmail_plus_config_missing": "TempMailPlus configuration is missing",

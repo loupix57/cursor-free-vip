@@ -15,6 +15,9 @@ import configparser
 import traceback
 from config import get_config
 from datetime import datetime
+from logger import get_logger
+
+log = get_logger("reset_machine_manual")
 
 # Initialize colorama
 init()
@@ -657,6 +660,7 @@ class MachineIDResetter:
             print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('reset.system_ids_updated')}{Style.RESET_ALL}")
             return True
         except Exception as e:
+            log.exception("System IDs update failed: %s", e)
             print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('reset.system_ids_update_failed', error=str(e))}{Style.RESET_ALL}")
             return False
 
@@ -675,6 +679,7 @@ class MachineIDResetter:
             winreg.CloseKey(key)
             print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('reset.windows_machine_guid_updated')}{Style.RESET_ALL}")
         except PermissionError as e:
+            log.warning("Permission denied updating Windows MachineGuid: %s (run as Administrator)", e)
             print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('reset.permission_denied', error=str(e))}{Style.RESET_ALL}")
             raise
         except Exception as e:
@@ -711,7 +716,8 @@ class MachineIDResetter:
             print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('reset.windows_machine_id_updated')}{Style.RESET_ALL}")
             return True
             
-        except PermissionError:
+        except PermissionError as e:
+            log.warning("Permission denied updating Windows MachineId (SQMClient): %s. Run as Administrator.", e)
             print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('reset.permission_denied')}{Style.RESET_ALL}")
             print(f"{Fore.YELLOW}{EMOJI['WARNING']} {self.translator.get('reset.run_as_admin')}{Style.RESET_ALL}")
             return False

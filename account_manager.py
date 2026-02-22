@@ -83,8 +83,8 @@ class AccountManager:
             if not domain:
                 return None
             
-            # Generate email prefix from first and last name (lowercase)
-            email_prefix = f"{first_name.lower()}.{last_name.lower()}"
+            # Generate email prefix: firstname_lastname (underscore) pour correspondre au compte Linux sur le nœud distant
+            email_prefix = f"{first_name.lower()}_{last_name.lower()}"
             
             # Combine prefix and domain
             suggested_email = f"{email_prefix}@{domain}"
