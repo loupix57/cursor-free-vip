@@ -440,15 +440,16 @@ def handle_post_verification_onboarding(page, config, translator=None):
     """
     try:
         base_wait = get_random_wait_time(config, 'verification_success_wait')
-        # Onboarding est trop long si on garde le délai complet : on le borne à 0.8–2s
-        wait = max(0.8, min(base_wait, 2.0))
+        # Onboarding doit être très rapide : borne le délai à ~0.3–1s
+        wait = max(0.3, min(base_wait, 1.0))
         start_time = time.time()
         last_url = ""
 
         if translator:
             print(f"{Fore.CYAN}ℹ️ Post-vérification : début du passage des écrans d’onboarding...{Style.RESET_ALL}")
 
-        for step in range(6):
+        # 4 itérations suffisent désormais : role → trial → dashboard/share-data → settings
+        for step in range(4):
             time.sleep(wait)
             try:
                 url = page.url if hasattr(page, 'url') else ''

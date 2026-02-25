@@ -37,7 +37,12 @@
         "lang_invalid_choice": "Invalid choice. Please enter one of the following options: ({lang_choices})",
         "restore_machine_id": "Restore Machine ID from Backup",
         "manual_custom_auth": "Manual Custom Auth",
-        "delete_remote_user": "Delete user on remote node (SSH)"
+        "delete_remote_user": "Delete user on remote node (SSH)",
+        "open_cursor": "Open Cursor",
+        "quit_register_reopen": "Quit Cursor, then Register, then Reopen",
+        "open_cursor_ok": "Cursor launched",
+        "open_cursor_not_found": "Cursor executable not found",
+        "open_cursor_error": "Failed to launch Cursor: {error}"
     },
     "remote_user": {
         "creating": "Creating user {username} on {host}...",

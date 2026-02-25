@@ -48,6 +48,7 @@ a = Analysis(
         'restore_machine_id',
         'delete_cursor_google',
         'manual_custom_auth',
+        'cursor_launcher',
         'account_manager',
         'email_tabs.local_imap_tab',
         'email_tabs.tempmail_plus_tab',

@@ -383,8 +383,15 @@ class CursorRegistration:
         auth_manager = CursorAuth(translator=self.translator)
         return auth_manager.update_auth(email, access_token, refresh_token, auth_type)
 
-def main(translator=None):
-    """Main function to be called from main.py"""
+def main(translator=None, wait_for_enter: bool = True):
+    """Main function to be called from main.py
+
+    Args:
+        translator: translator instance passed from main.
+        wait_for_enter: si True, affiche \"Press Enter to Exit\" à la fin.
+                        Utile pour l'option 2 directe, mais désactivé
+                        quand on enchaîne dans un flux automatique (option 20).
+    """
     print(f"\n{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{EMOJI['START']} {translator.get('register.title')}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
@@ -393,7 +400,8 @@ def main(translator=None):
     registration.start()
 
     print(f"\n{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
-    input(f"{EMOJI['INFO']} {translator.get('register.press_enter')}...")
+    if wait_for_enter:
+        input(f"{EMOJI['INFO']} {translator.get('register.press_enter')}...")
 
 if __name__ == "__main__":
     from main import translator as main_translator

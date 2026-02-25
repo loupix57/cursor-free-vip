@@ -37,7 +37,12 @@
         "lang_invalid_choice": "Choix non valide. Veuillez saisir l'une des options suivantes: ({Lang_Choices})",
         "manual_custom_auth": "Auth personnalisé manuel",
         "admin_required_continue": "Poursuivant sans privilèges d'administrateur.",
-        "delete_remote_user": "Supprimer un utilisateur sur le nœud distant (SSH)"
+        "delete_remote_user": "Supprimer un utilisateur sur le nœud distant (SSH)",
+        "open_cursor": "Ouvrir Cursor",
+        "quit_register_reopen": "Fermer Cursor, puis Inscription, puis Rouvrir",
+        "open_cursor_ok": "Cursor lancé",
+        "open_cursor_not_found": "Exécutable Cursor introuvable",
+        "open_cursor_error": "Échec du lancement de Cursor : {error}"
     },
     "remote_user": {
         "creating": "Création du compte {username} sur {host}...",

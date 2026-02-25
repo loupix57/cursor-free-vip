@@ -651,13 +651,24 @@ class MachineIDResetter:
         try:
             print(f"{Fore.CYAN}{EMOJI['INFO']} {self.translator.get('reset.updating_system_ids')}...{Style.RESET_ALL}")
             
+            success = True
             if sys.platform.startswith("win"):
-                self._update_windows_machine_guid()
-                self._update_windows_machine_id()
+                # Ces opérations nécessitent souvent les droits admin.
+                # On les exécute \"au mieux\" et on considère qu'un échec
+                # de permission n'est pas bloquant pour le reste du reset.
+                if not self._update_windows_machine_guid():
+                    success = False
+                if not self._update_windows_machine_id():
+                    success = False
             elif sys.platform == "darwin":
                 self._update_macos_platform_uuid(new_ids)
                 
-            print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('reset.system_ids_updated')}{Style.RESET_ALL}")
+            if success:
+                print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('reset.system_ids_updated')}{Style.RESET_ALL}")
+            else:
+                # Avertissement doux : certaines IDs système n'ont pas pu être
+                # mises à jour faute de droits admin, mais le reset local est fait.
+                print(f"{Fore.YELLOW}{EMOJI['WARNING']} {self.translator.get('reset.system_ids_partially_updated', fallback='Certaines identifiants système n’ont pas pu être mis à jour (droits administrateur requis), mais la configuration locale a été réinitialisée.')}{Style.RESET_ALL}")
             return True
         except Exception as e:
             log.exception("System IDs update failed: %s", e)
@@ -679,9 +690,11 @@ class MachineIDResetter:
             winreg.CloseKey(key)
             print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('reset.windows_machine_guid_updated')}{Style.RESET_ALL}")
         except PermissionError as e:
+            # Droits insuffisants : log en warning, ne pas afficher de grosse erreur rouge
             log.warning("Permission denied updating Windows MachineGuid: %s (run as Administrator)", e)
-            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('reset.permission_denied', error=str(e))}{Style.RESET_ALL}")
-            raise
+            print(f"{Fore.YELLOW}{EMOJI['WARNING']} {self.translator.get('reset.permission_denied', error=str(e))}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}{EMOJI['WARNING']} {self.translator.get('reset.run_as_admin', fallback='Relancez l’outil en tant qu’administrateur pour mettre à jour complètement les identifiants système.')}{Style.RESET_ALL}")
+            return False
         except Exception as e:
             print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('reset.update_windows_machine_guid_failed', error=str(e))}{Style.RESET_ALL}")
             raise
@@ -718,8 +731,8 @@ class MachineIDResetter:
             
         except PermissionError as e:
             log.warning("Permission denied updating Windows MachineId (SQMClient): %s. Run as Administrator.", e)
-            print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('reset.permission_denied')}{Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}{EMOJI['WARNING']} {self.translator.get('reset.run_as_admin')}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}{EMOJI['WARNING']} {self.translator.get('reset.permission_denied')}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}{EMOJI['WARNING']} {self.translator.get('reset.run_as_admin', fallback='Relancez l’outil en tant qu’administrateur pour mettre à jour complètement les identifiants système.')}{Style.RESET_ALL}")
             return False
         except Exception as e:
             print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('reset.update_windows_machine_id_failed', error=str(e))}{Style.RESET_ALL}")

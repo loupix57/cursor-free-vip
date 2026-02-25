@@ -274,6 +274,8 @@ class Translator:
             "restore_machine_id": "Restore Machine ID from Backup",
             "manual_custom_auth": "Manual Custom Auth",
             "delete_remote_user": "Delete user on remote node (SSH)",
+            "open_cursor": "Open Cursor",
+            "quit_register_reopen": "Quit Cursor, then Register, then Reopen",
         }
 
     def load_translations(self):
@@ -422,7 +424,9 @@ def print_menu():
         15: f"{Fore.GREEN}15{Style.RESET_ALL}. {EMOJI['ERROR']}  {translator.get('menu.delete_google_account')}",
         16: f"{Fore.GREEN}16{Style.RESET_ALL}. {EMOJI['SETTINGS']}  {translator.get('menu.select_chrome_profile')}",
         17: f"{Fore.GREEN}17{Style.RESET_ALL}. {EMOJI['UPDATE']}  {translator.get('menu.manual_custom_auth')}",
-        18: f"{Fore.GREEN}18{Style.RESET_ALL}. {EMOJI['SETTINGS']}  {translator.get('menu.delete_remote_user')}"
+        18: f"{Fore.GREEN}18{Style.RESET_ALL}. {EMOJI['SETTINGS']}  {translator.get('menu.delete_remote_user')}",
+        19: f"{Fore.GREEN}19{Style.RESET_ALL}. {EMOJI['ROCKET']} {translator.get('menu.open_cursor')}",
+        20: f"{Fore.GREEN}20{Style.RESET_ALL}. {EMOJI['ROCKET']} {translator.get('menu.quit_register_reopen')}"
     }
     
     # Automatically calculate the number of menu items in the left and right columns
@@ -756,7 +760,7 @@ def main():
     
     while True:
         try:
-            choice_num = 18
+            choice_num = 20
             choice = input(f"\n{EMOJI['ARROW']} {Fore.CYAN}{translator.get('menu.input_choice', choices=f'0-{choice_num}')}: {Style.RESET_ALL}")
 
             match choice:
@@ -849,6 +853,14 @@ def main():
                             print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('remote_user.host_not_configured') if translator else 'RemoteNode host non configuré.'}{Style.RESET_ALL}")
                     else:
                         print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('remote_user.not_enabled') if translator else 'RemoteNode désactivé. Activez-le dans la config (option 10).'}{Style.RESET_ALL}")
+                    print_menu()
+                case "19":
+                    import cursor_launcher
+                    cursor_launcher.open_cursor(translator)
+                    print_menu()
+                case "20":
+                    import cursor_launcher
+                    cursor_launcher.run_quit_register_reopen(translator)
                     print_menu()
                 case _:
                     print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")
