@@ -3,6 +3,7 @@ import time
 import os
 import signal
 import random
+import threading
 from colorama import Fore, Style
 import configparser
 from pathlib import Path
@@ -283,7 +284,23 @@ def handle_turnstile(page, config, translator=None):
             print(f"{Fore.CYAN}🔄 {translator.get('register.handling_turnstile')}{Style.RESET_ALL}")
         else:
             print("\nHandling Turnstile verification...")
-        
+
+        # Si on est déjà sur l'onboarding (Customize Your Experience, trial, etc.), considérer comme succès
+        try:
+            url = page.url if hasattr(page, 'url') else ''
+            if 'onboarding' in url or '/trial' in url or 'cursor.com/dashboard' in url:
+                log.info("Already on onboarding/dashboard page, skipping Turnstile")
+                if translator:
+                    print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
+                return True
+            if page.ele('xpath://button[contains(., "Continue")]', timeout=0.5) and page.ele('xpath://a[contains(., "Maybe Later")]', timeout=0.3):
+                log.info("Continue + Maybe Later detected (onboarding), skipping Turnstile")
+                if translator:
+                    print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
+                return True
+        except Exception:
+            pass
+
         # Check first if verification is already successful (no need to retry)
         if check_verification_success(page, translator):
             log.info("Turnstile verification already successful, skipping retry")
@@ -320,17 +337,25 @@ def handle_turnstile(page, config, translator=None):
                 page.run_js("try { turnstile.reset() } catch(e) { }")
                 time.sleep(turnstile_time)  # from config
 
-                # Locate verification box element
-                try:
-                    challenge_check = (
-                        page.ele("@id=cf-turnstile", timeout=2)
-                        .child()
-                        .shadow_root.ele("tag:iframe")
-                        .ele("tag:body")
-                        .sr("tag:input")
-                    )
-                except Exception:
-                    challenge_check = None
+                # Locate verification box element (dans un thread avec timeout 15s max pour éviter ~2 min d'attente)
+                challenge_check = None
+                def _find_turnstile():
+                    nonlocal challenge_check
+                    try:
+                        challenge_check = (
+                            page.ele("@id=cf-turnstile", timeout=3)
+                            .child()
+                            .shadow_root.ele("tag:iframe")
+                            .ele("tag:body")
+                            .sr("tag:input")
+                        )
+                    except Exception:
+                        pass
+                th = threading.Thread(target=_find_turnstile, daemon=True)
+                th.start()
+                th.join(timeout=15)
+                if th.is_alive():
+                    log.debug("Turnstile element lookup timed out after 15s")
 
                 if challenge_check:
                     if translator:
@@ -415,13 +440,79 @@ def handle_post_verification_onboarding(page, config, translator=None):
     """
     try:
         wait = get_random_wait_time(config, 'verification_success_wait')
+        start_time = time.time()
+        last_url = ""
+
+        if translator:
+            print(f"{Fore.CYAN}ℹ️ Post-vérification : début du passage des écrans d’onboarding...{Style.RESET_ALL}")
+
         for step in range(6):
             time.sleep(wait)
             try:
                 url = page.url if hasattr(page, 'url') else ''
-                if 'cursor.com/settings' in url and not page.ele('xpath://button[contains(., "Continue")]', timeout=0.3):
+                last_url = url or last_url
+
+                # Log détaillé de la step + URL + type de page détecté
+                page_type = "inconnue"
+                if 'onboarding/role' in url:
+                    page_type = "onboarding/role"
+                elif '/trial' in url:
+                    page_type = "trial"
+                elif 'dashboard?tab=settings' in url:
+                    page_type = "dashboard?tab=settings"
+                elif 'cursor.com/settings' in url:
+                    page_type = "settings"
+                elif 'cursor.com/dashboard' in url:
+                    page_type = "dashboard"
+
+                if translator:
+                    print(
+                        f"{Fore.CYAN}ℹ️ Step post‑vérif {step + 1}/6 – URL: {url or 'inconnue'} (page: {page_type}){Style.RESET_ALL}"
+                    )
+
+                clicked = False
+
+                # Page 1: Customize Your Experience → cliquer en priorité sur "Skip for now" / "Maybe Later"
+                if 'onboarding/role' in url and not clicked:
+                    for label in ("Skip for now", "Skip", "Passer", "Maybe Later", "Maybe later"):
+                        try:
+                            # Bouton
+                            btn = page.ele(f'xpath://button[contains(., "{label}")]', timeout=0.6)
+                            if not btn:
+                                # Lien éventuel
+                                btn = page.ele(f'xpath://a[contains(., "{label}")]', timeout=0.6)
+                            if btn:
+                                btn.click()
+                                clicked = True
+                                _log_step(step, label, translator)
+                                break
+                        except Exception:
+                            continue
+
+                # Page 2: Claim your free Pro trial → cliquer en priorité sur "Skip for now"
+                if '/trial' in url and not clicked:
+                    for label in ("Skip for now", "Skip", "Passer"):
+                        try:
+                            btn = page.ele(f'xpath://button[contains(., "{label}")]', timeout=0.6)
+                            if not btn:
+                                btn = page.ele(f'xpath://a[contains(., "{label}")]', timeout=0.6)
+                            if btn:
+                                btn.click()
+                                clicked = True
+                                _log_step(step, label, translator)
+                                break
+                        except Exception:
+                            continue
+
+                if ('cursor.com/settings' in url or 'dashboard?tab=settings' in url) and not page.ele('xpath://button[contains(., "Continue")]', timeout=0.3):
+                    if translator:
+                        elapsed = time.time() - start_time
+                        print(f"{Fore.CYAN}ℹ️ Onboarding terminé, page settings détectée en {elapsed:.1f}s.{Style.RESET_ALL}")
                     return True
                 if page.ele("Account Settings", timeout=0.5):
+                    if translator:
+                        elapsed = time.time() - start_time
+                        print(f"{Fore.CYAN}ℹ️ Onboarding terminé, écran Account Settings détecté en {elapsed:.1f}s.{Style.RESET_ALL}")
                     return True
             except Exception:
                 pass
@@ -446,8 +537,9 @@ def handle_post_verification_onboarding(page, config, translator=None):
                 pass
 
             # 2) Boutons / liens : Skip for now, Maybe later, Continue, etc.
-            clicked = False
             for label in ("Skip for now", "Maybe Later", "Maybe later", "Continue", "Continuer", "Let me later", "Plus tard", "Skip", "Passer"):
+                if clicked:
+                    break
                 try:
                     btn = page.ele(f'xpath://button[contains(., "{label}")]', timeout=0.5)
                     if btn:
@@ -478,6 +570,12 @@ def handle_post_verification_onboarding(page, config, translator=None):
                 except Exception:
                     pass
             time.sleep(wait)
+
+        # Si on sort de la boucle sans retour explicite, logguer l’URL courante pour le debug
+        if translator:
+            elapsed = time.time() - start_time
+            safe_url = last_url or (page.url if hasattr(page, 'url') else '')
+            print(f"{Fore.CYAN}ℹ️ Onboarding terminé après 6 itérations (durée ~{elapsed:.1f}s), URL actuelle : {safe_url}{Style.RESET_ALL}")
         return True
     except Exception as e:
         log.debug("Post-verification onboarding: %s", e)
@@ -576,8 +674,8 @@ def handle_verification_code(browser_tab, email_tab, controller, config, transla
                             print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
                         time.sleep(get_random_wait_time(config, 'verification_retry_wait'))
                         handle_post_verification_onboarding(browser_tab, config, translator)
-                        print(f"{Fore.CYAN}🔑 {translator.get('register.visiting_url')}: https://www.cursor.com/settings{Style.RESET_ALL}")
-                        browser_tab.get("https://www.cursor.com/settings")
+                        print(f"{Fore.CYAN}🔑 {translator.get('register.visiting_url')}: https://www.cursor.com/dashboard?tab=settings{Style.RESET_ALL}")
+                        browser_tab.get("https://www.cursor.com/dashboard?tab=settings")
                         time.sleep(get_random_wait_time(config, 'settings_page_load_wait'))
                         handle_post_verification_onboarding(browser_tab, config, translator)
                         return True, browser_tab
@@ -616,8 +714,8 @@ def handle_verification_code(browser_tab, email_tab, controller, config, transla
                         time.sleep(get_random_wait_time(config, 'verification_retry_wait'))
                         handle_post_verification_onboarding(browser_tab, config, translator)
                         if translator:
-                            print(f"{Fore.CYAN}🔑 {translator.get('register.visiting_url')}: https://www.cursor.com/settings{Style.RESET_ALL}")
-                        browser_tab.get("https://www.cursor.com/settings")
+                            print(f"{Fore.CYAN}🔑 {translator.get('register.visiting_url')}: https://www.cursor.com/dashboard?tab=settings{Style.RESET_ALL}")
+                        browser_tab.get("https://www.cursor.com/dashboard?tab=settings")
                         time.sleep(get_random_wait_time(config, 'settings_page_load_wait'))
                         handle_post_verification_onboarding(browser_tab, config, translator)
                         return True, browser_tab
@@ -678,8 +776,8 @@ def handle_verification_code(browser_tab, email_tab, controller, config, transla
                     time.sleep(get_random_wait_time(config, 'verification_retry_wait'))
                     handle_post_verification_onboarding(browser_tab, config, translator)
                     if translator:
-                        print(f"{Fore.CYAN}{translator.get('register.visiting_url')}: https://www.cursor.com/settings{Style.RESET_ALL}")
-                    browser_tab.get("https://www.cursor.com/settings")
+                        print(f"{Fore.CYAN}{translator.get('register.visiting_url')}: https://www.cursor.com/dashboard?tab=settings{Style.RESET_ALL}")
+                    browser_tab.get("https://www.cursor.com/dashboard?tab=settings")
                     time.sleep(get_random_wait_time(config, 'settings_page_load_wait'))
                     handle_post_verification_onboarding(browser_tab, config, translator)
                     return True, browser_tab

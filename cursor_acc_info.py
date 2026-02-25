@@ -80,12 +80,10 @@ class UsageManager:
                 'max_basic_usage': "No Limit"  # set Basic limit to "No Limit"
             }
         except requests.RequestException as e:
-            # only log error
-            logger.error(f"Get usage info failed: {str(e)}")
+            logger.debug("Get usage info failed: %s", e)
             return None
         except Exception as e:
-            # catch all other exceptions
-            logger.error(f"Get usage info failed: {str(e)}")
+            logger.debug("Get usage info failed: %s", e)
             return None
 
     @staticmethod
@@ -384,7 +382,7 @@ def display_account_info(translator=None):
     try:
         usage_info = UsageManager.get_usage(token)
     except Exception as e:
-        logger.error(f"Get usage info failed: {str(e)}")
+        logger.debug("Get usage info failed: %s", e)
         usage_info = None
     
     # Prepare left and right info

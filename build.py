@@ -53,8 +53,11 @@ def build():
     # Clean screen
     os.system("cls" if platform.system().lower() == "windows" else "clear")
     
-    # Display logo
-    print_logo()
+    # Display logo (skip on Windows if console encoding can't handle it)
+    try:
+        print_logo()
+    except UnicodeEncodeError:
+        print("Cursor Free VIP - Build")
     
     # Clean PyInstaller cache
     print("\033[93m🧹 Cleaning build cache...\033[0m")

@@ -43,7 +43,8 @@ class CursorRegistration:
         self.browser = None
         self.controller = None
         self.sign_up_url = "https://authenticator.cursor.sh/sign-up"
-        self.settings_url = "https://www.cursor.com/settings"
+        # Nouvelle page settings avec données d’usage : dashboard?tab=settings
+        self.settings_url = "https://www.cursor.com/dashboard?tab=settings"
         self.email_address = None
         self.signup_tab = None
         self.email_tab = None
@@ -260,35 +261,53 @@ class CursorRegistration:
                     pass
                 
     def _get_account_info(self):
-        """Get Account Information and Token"""
+        """Get Account Information and Token. Dès la 2e étape (Review Settings / dashboard) le token est dispo, on essaie tout de suite."""
         try:
-            self.signup_tab.get(self.settings_url)
-            time.sleep(2)
-            
-            usage_selector = (
-                "css:div.col-span-2 > div > div > div > div > "
-                "div:nth-child(1) > div.flex.items-center.justify-between.gap-2 > "
-                "span.font-mono.text-sm\\/\\[0\\.875rem\\]"
-            )
-            usage_ele = self.signup_tab.ele(usage_selector)
-            total_usage = "Inconnu"
-            if usage_ele:
-                total_usage = usage_ele.text.split("/")[-1].strip()
+            start_time = time.time()
+            try:
+                current_url = self.signup_tab.url if hasattr(self.signup_tab, "url") else ""
+            except Exception:
+                current_url = ""
+            print(f"{Fore.CYAN}{EMOJI['INFO']} Démarrage de la récupération du token et des infos compte (URL: {current_url or 'inconnue'})...{Style.RESET_ALL}")
 
-            print(f"Total Usage: {total_usage}\n")
+            total_usage = "Inconnu"
             print(f"{Fore.CYAN}{EMOJI['WAIT']} {self.translator.get('register.get_token')}...{Style.RESET_ALL}")
             max_attempts = 30
             retry_interval = 2
             attempts = 0
+            # D'abord essayer avec la page actuelle (souvent déjà dashboard après Review Settings)
+            try_current_page_first = True
 
             while attempts < max_attempts:
                 try:
+                    if try_current_page_first and attempts == 0:
+                        try_current_page_first = False
+                        # Ne pas naviguer : on est peut-être déjà sur dashboard (2e étape)
+                    else:
+                        print(f"{Fore.CYAN}{EMOJI['WAIT']} Navigation vers la page settings pour lire le cookie (tentative {attempts + 1})...{Style.RESET_ALL}")
+                        self.signup_tab.get(self.settings_url)
+                        time.sleep(2)
+
                     cookies = self.signup_tab.cookies()
                     for cookie in cookies:
                         if cookie.get("name") == "WorkosCursorSessionToken":
                             token = get_token_from_cookie(cookie["value"], self.translator)
                             print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('register.token_success')}{Style.RESET_ALL}")
+                            # Récupérer l'usage si on est sur la page settings
+                            try:
+                                usage_selector = (
+                                    "css:div.col-span-2 > div > div > div > div > "
+                                    "div:nth-child(1) > div.flex.items-center.justify-between.gap-2 > "
+                                    "span.font-mono.text-sm\\/\\[0\\.875rem\\]"
+                                )
+                                usage_ele = self.signup_tab.ele(usage_selector, timeout=1)
+                                if usage_ele:
+                                    total_usage = usage_ele.text.split("/")[-1].strip()
+                            except Exception:
+                                pass
                             self._save_account_info(token, total_usage)
+                            elapsed = time.time() - start_time
+                            print(f"{Fore.CYAN}{EMOJI['INFO']} Récupération du token + infos compte terminée en {elapsed:.1f}s (tentatives: {attempts + 1}).{Style.RESET_ALL}")
                             return True
 
                     attempts += 1
@@ -309,6 +328,11 @@ class CursorRegistration:
 
         except Exception as e:
             print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('register.account_error', error=str(e))}{Style.RESET_ALL}")
+            try:
+                elapsed = time.time() - start_time
+                print(f"{Fore.YELLOW}{EMOJI['WAIT']} Échec de la récupération du token après ~{elapsed:.1f}s.{Style.RESET_ALL}")
+            except Exception:
+                pass
             return False
 
     def _save_account_info(self, token, total_usage):

@@ -27,6 +27,7 @@ def refresh_token(token, translator=None):
         str: The refreshed access token or original token if refresh fails
     """
     try:
+        start_time = time.time()
         config = get_config(translator)
         # Get refresh_server URL from config or use default
         refresh_server = config.get('Token', 'refresh_server', fallback='https://token.cursorpro.com.cn')
@@ -53,7 +54,8 @@ def refresh_token(token, translator=None):
                     expire_time = data.get('data', {}).get('expire_time', 'Unknown')
                     
                     if access_token:
-                        print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {translator.get('token.refresh_success', days=days_left, expire=expire_time) if translator else f'Token refreshed successfully! Valid for {days_left} days (expires: {expire_time})'}{Style.RESET_ALL}")
+                        elapsed = time.time() - start_time
+                        print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {translator.get('token.refresh_success', days=days_left, expire=expire_time) if translator else f'Token refreshed successfully! Valid for {days_left} days (expires: {expire_time})'} (HTTP {elapsed:.1f}s){Style.RESET_ALL}")
                         return access_token
                     else:
                         print(f"{Fore.YELLOW}{EMOJI['WARNING']} {translator.get('token.no_access_token') if translator else 'No access token in response'}{Style.RESET_ALL}")
