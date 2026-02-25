@@ -46,8 +46,11 @@ def setup_logging(
         return
 
     if level is None:
-        level = os.environ.get("CURSOR_FREE_VIP_LOG_LEVEL", "INFO").upper()
-    level = getattr(logging, level, logging.INFO)
+        # Réduire le bruit par défaut : WARNING au lieu de INFO.
+        # Possibilité de réactiver INFO via la variable d'environnement
+        # CURSOR_FREE_VIP_LOG_LEVEL=INFO si besoin.
+        level = os.environ.get("CURSOR_FREE_VIP_LOG_LEVEL", "WARNING").upper()
+    level = getattr(logging, level, logging.WARNING)
 
     root = logging.getLogger("cursor_free_vip")
     root.setLevel(level)

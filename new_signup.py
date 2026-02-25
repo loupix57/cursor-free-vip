@@ -439,7 +439,9 @@ def handle_post_verification_onboarding(page, config, translator=None):
     On boucle jusqu'à 6 étapes ou jusqu'à arriver sur settings.
     """
     try:
-        wait = get_random_wait_time(config, 'verification_success_wait')
+        base_wait = get_random_wait_time(config, 'verification_success_wait')
+        # Onboarding est trop long si on garde le délai complet : on le borne à 0.8–2s
+        wait = max(0.8, min(base_wait, 2.0))
         start_time = time.time()
         last_url = ""
 
@@ -569,7 +571,6 @@ def handle_post_verification_onboarding(page, config, translator=None):
                         _log_step(step, "continue/skip", translator)
                 except Exception:
                     pass
-            time.sleep(wait)
 
         # Si on sort de la boucle sans retour explicite, logguer l’URL courante pour le debug
         if translator:
