@@ -98,7 +98,9 @@ class UsageManager:
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
-            logger.error(f"Get subscription info failed: {str(e)}")
+            # 401 / profil Stripe absent n'est pas bloquant pour l'outil,
+            # on log en debug pour éviter du rouge inutile dans la console.
+            logger.debug("Get subscription info failed: %s", e)
             return None
 
 def get_token_from_config():
@@ -365,11 +367,11 @@ def display_account_info(translator=None):
     if not email:
         email = get_email_from_sqlite(paths['sqlite_path'])
     
-    # get subscription info
+    # get subscription info (échecs non bloquants → debug only)
     try:
         subscription_info = UsageManager.get_stripe_profile(token)
     except Exception as e:
-        logger.error(f"Get subscription info failed: {str(e)}")
+        logger.debug("Get subscription info failed: %s", e)
         subscription_info = None
     
     # if not found in storage and sqlite, try from subscription info

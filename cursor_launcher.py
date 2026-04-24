@@ -67,9 +67,25 @@ def open_cursor(translator=None):
             print(f"{Fore.RED}{EMOJI['ERROR']} {msg}{Style.RESET_ALL}")
             return False
         if platform.system() == "Darwin":
-            subprocess.Popen(["open", "-a", exe], start_new_session=True)
+            subprocess.Popen(
+                ["open", "-a", exe],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         elif platform.system() == "Windows":
-            subprocess.Popen([exe], creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS, close_fds=True)
+            subprocess.Popen(
+                [exe],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=(
+                    subprocess.CREATE_NEW_PROCESS_GROUP
+                    | subprocess.DETACHED_PROCESS
+                    | subprocess.CREATE_NO_WINDOW
+                ),
+                close_fds=True,
+            )
         else:
             subprocess.Popen([exe], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         msg = translator.get("menu.open_cursor_ok") if translator else "Cursor launched"

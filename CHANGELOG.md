@@ -1,5 +1,16 @@
 # Change Log
 
+## v1.13.0
+1. **Menu principal** : entrées retirées (OAuth Google/GitHub, vérif utilisateur autorisé, bypass limite tokens, restauration machine id depuis sauvegarde, profil Chrome OAuth, auth manuelle custom) ; menu renuméroté **0–16** ; références RemoteNode « option 8 » (config).
+2. **Option 7 — domaine e-mail** : affichage du nombre de comptes enregistrés **par domaine** (`cursor_accounts.txt`) avant changement de domaine.
+3. **Option 16** : login CLI `agent login` + automatisation DrissionPage (inchangé dans l’esprit ; refactor interne `_authenticator_login_steps_after_page_load`).
+4. **Option 17** : connexion Cursor **web** (`authenticator.cursor.sh/sign-in`) avec compte **@gmail / @googlemail** enregistré — **sans** `agent login`.
+5. **Option 18** : inscription Cursor avec **e-mail jetable** (API **mail.tm**), même flux que l’option 2 mais menu dédié (`cursor_register_disposable.py`).
+6. **Option 19** : test de connectivité de l’API e-mail jetable (création de boîte + lecture liste).
+7. **Config** : section `[DisposableMail]` (`api_base`, `request_timeout`) ; commentaires Agent CLI / options 16–17.
+8. **Comptes** : `AccountManager.get_saved_google_accounts()` ; décompte par domaine ; package `email_tabs` avec `disposable_mail_tab.py`.
+9. **Locales** : `en.json` / `fr.json` (menus, agent CLI, disposable, RemoteNode).
+
 ## v1.12.1
 1. **Exe compilé** : correction de l’affichage du menu (options 0–18) — chemins locales priorisés pour frozen (_MEIPASS, exe dir), fallback menu complet en anglais si chargement des JSON échoue
 

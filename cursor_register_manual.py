@@ -110,7 +110,7 @@ class CursorRegistration:
                 if self.translator:
                     print(f"{Fore.YELLOW}{EMOJI['INFO']} {self.translator.get('remote_user.enable_in_config')}{Style.RESET_ALL}")
                 else:
-                    print(f"{Fore.YELLOW}{EMOJI['INFO']} Pour créer un compte sur le nœud distant, activez [RemoteNode] dans la config (menu option 10).{Style.RESET_ALL}")
+                    print(f"{Fore.YELLOW}{EMOJI['INFO']} Pour créer un compte sur le nœud distant, activez [RemoteNode] dans la config (menu option 8).{Style.RESET_ALL}")
                 
             print(f"{Fore.CYAN}{EMOJI['MAIL']} {self.translator.get('register.email_address')}: {self.email_address}" + "\n" + f"{Style.RESET_ALL}")
             return True
@@ -390,7 +390,7 @@ def main(translator=None, wait_for_enter: bool = True):
         translator: translator instance passed from main.
         wait_for_enter: si True, affiche \"Press Enter to Exit\" à la fin.
                         Utile pour l'option 2 directe, mais désactivé
-                        quand on enchaîne dans un flux automatique (option 20).
+                        quand on enchaîne dans un flux automatique (option 13).
     """
     print(f"\n{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{EMOJI['START']} {translator.get('register.title')}{Style.RESET_ALL}")
@@ -402,6 +402,109 @@ def main(translator=None, wait_for_enter: bool = True):
     print(f"\n{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
     if wait_for_enter:
         input(f"{EMOJI['INFO']} {translator.get('register.press_enter')}...")
+
+
+def change_email_domain(translator=None):
+    """Allow user to change preferred email domain."""
+    account_manager = AccountManager(translator)
+    by_domain = account_manager.get_email_counts_by_domain()
+    if by_domain:
+        print(f"{Fore.CYAN}{EMOJI['INFO']} Comptes enregistrés par domaine ({account_manager.accounts_file}) :{Style.RESET_ALL}")
+        for domain, n in by_domain.items():
+            print(f"  {Fore.GREEN}{domain}{Style.RESET_ALL} : {n}")
+        total = sum(by_domain.values())
+        print(f"{Fore.CYAN}{EMOJI['INFO']} Total : {total} compte(s){Style.RESET_ALL}")
+    else:
+        print(f"{Fore.YELLOW}{EMOJI['INFO']} Aucun compte avec email dans {account_manager.accounts_file}.{Style.RESET_ALL}")
+
+    current = account_manager.get_preferred_domain() or account_manager.get_last_email_domain()
+    if current:
+        print(f"{Fore.CYAN}{EMOJI['INFO']} Domaine préféré / dernier utilisé: {current}{Style.RESET_ALL}")
+
+    remote_domains = []
+    try:
+        from remote_user_manager import list_remote_mail_domains
+        remote_domains = list_remote_mail_domains("node12.lan", "pi")
+    except Exception:
+        remote_domains = []
+
+    new_domain = ""
+    if remote_domains:
+        print(f"{Fore.CYAN}{EMOJI['INFO']} Domaines trouvés sur node12.lan :{Style.RESET_ALL}")
+        for idx, domain in enumerate(remote_domains, start=1):
+            print(f"{Fore.GREEN}{idx}{Style.RESET_ALL}. {domain}")
+        print(f"{Fore.GREEN}0{Style.RESET_ALL}. Saisie manuelle")
+
+        choice = input(f"Choisissez un domaine (0-{len(remote_domains)}): ").strip()
+        if choice.isdigit():
+            choice_num = int(choice)
+            if 1 <= choice_num <= len(remote_domains):
+                new_domain = remote_domains[choice_num - 1]
+
+    if not new_domain:
+        new_domain = input("Nouveau nom de domaine (ex: example.com): ").strip().lower()
+
+    if account_manager.set_preferred_domain(new_domain):
+        print(f"{Fore.GREEN}{EMOJI['SUCCESS']} Domaine enregistré: {new_domain}{Style.RESET_ALL}")
+        return True
+
+    print(f"{Fore.RED}{EMOJI['ERROR']} Domaine invalide.{Style.RESET_ALL}")
+    return False
+
+
+def reuse_existing_account(translator=None, min_days: int = 30):
+    """Reuse a saved account older than min_days by applying auth + machine reset."""
+    try:
+        raw_days = input(f"Âge minimum du compte en jours (Entrée = {min_days}): ").strip()
+        if raw_days:
+            min_days = int(raw_days)
+            if min_days < 0:
+                raise ValueError("negative days")
+    except Exception:
+        print(f"{Fore.YELLOW}{EMOJI['INFO']} Valeur invalide, utilisation de {min_days} jours.{Style.RESET_ALL}")
+
+    account_manager = AccountManager(translator)
+    accounts = account_manager.get_reusable_accounts(min_days=min_days)
+    if not accounts:
+        print(f"{Fore.YELLOW}{EMOJI['INFO']} Aucun compte réutilisable (>= {min_days} jours) trouvé.{Style.RESET_ALL}")
+        return False
+
+    print(f"\n{Fore.CYAN}{EMOJI['INFO']} Comptes réutilisables (>= {min_days} jours):{Style.RESET_ALL}")
+    for idx, acc in enumerate(accounts, start=1):
+        usage = acc.get('usage_limit') or '-'
+        age = acc.get('age_days')
+        print(f"{Fore.GREEN}{idx}{Style.RESET_ALL}. {acc['email']} | âge: {age} jours | usage: {usage}")
+
+    choice = input(f"Sélectionnez un compte (1-{len(accounts)}): ").strip()
+    if not choice.isdigit() or not (1 <= int(choice) <= len(accounts)):
+        print(f"{Fore.RED}{EMOJI['ERROR']} Choix invalide.{Style.RESET_ALL}")
+        return False
+
+    selected = accounts[int(choice) - 1]
+    token = selected.get('token')
+    if not token:
+        print(f"{Fore.RED}{EMOJI['ERROR']} Token manquant pour ce compte.{Style.RESET_ALL}")
+        return False
+
+    print(f"{Fore.CYAN}{EMOJI['KEY']} Application du compte: {selected['email']}{Style.RESET_ALL}")
+    auth_manager = CursorAuth(translator=translator)
+    if not auth_manager.update_auth(
+        email=selected['email'],
+        access_token=token,
+        refresh_token=token,
+        auth_type="Auth_0",
+    ):
+        print(f"{Fore.RED}{EMOJI['ERROR']} Échec mise à jour auth Cursor.{Style.RESET_ALL}")
+        return False
+
+    resetter = MachineIDResetter(translator)
+    if not resetter.reset_machine_ids():
+        print(f"{Fore.RED}{EMOJI['ERROR']} Échec reset machine id.{Style.RESET_ALL}")
+        return False
+
+    print(f"{Fore.GREEN}{EMOJI['DONE']} Compte réutilisé avec succès.{Style.RESET_ALL}")
+    return True
+
 
 if __name__ == "__main__":
     from main import translator as main_translator

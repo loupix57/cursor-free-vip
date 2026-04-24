@@ -93,7 +93,7 @@ def setup_config(translator=None):
                 'max_timeout': '160'
             },
             'Utils': {
-                'enabled_update_check': 'True',
+                'enabled_update_check': 'False',
                 'enabled_force_update': 'False',
                 'enabled_account_info': 'True'
             },
@@ -265,13 +265,27 @@ def setup_config(translator=None):
             'use_ssl': 'true',
             'folder': 'INBOX'
         }
+        # API mail.tm (menu 18 — inscription e-mail jetable)
+        default_config['DisposableMail'] = {
+            'api_base': 'https://api.mail.tm',
+            'request_timeout': '25',
+        }
         # Nœud distant SSH : créer/supprimer les comptes utilisateur (adduser / deluser)
         default_config['RemoteNode'] = {
             'enabled': 'false',
             'host': 'remote-host.lan',
             'user': 'pi',
             'create_user_on_register': 'true',
-            'remove_home_on_delete': 'true'
+            'remove_home_on_delete': 'true',
+            # Liste séparée par des virgules : comptes à ne jamais supprimer avec l’option « nettoyage mail »
+            'cleanup_skip_users': 'pi,debian,ubuntu',
+        }
+        # Menu options 16–17 — mode 2 (DrissionPage + agent login) : taille et position de la fenêtre Chromium
+        default_config['AgentCliLogin'] = {
+            'window_width': '680',
+            'window_height': '480',
+            'window_x': '100',
+            'window_y': '72',
         }
 
         # Read existing configuration and merge
