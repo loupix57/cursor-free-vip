@@ -51,6 +51,7 @@ EMOJI = {
     "SUN": "🌟",
     "SETTINGS": "⚙️",
     "MAIL": "📧",
+    "KEY": "🔑",
 }
 
 # Function to check if running as frozen executable
@@ -277,11 +278,53 @@ class Translator:
             "open_cursor": "Open Cursor",
             "quit_register_reopen": "Quit Cursor, then Register, then Reopen",
             "change_email_domain": "Change email domain",
-            "reuse_existing_account": "Reuse an existing account (>=30 days)",
+            "reuse_existing_account": "Reuse an existing account (>=31 days)",
             "open_cli_login_private": "Open Cursor CLI login URL in private browser",
             "google_saved_cli_login": "Cursor web login: pick saved @gmail / @googlemail account",
             "register_disposable": "Register Cursor with disposable email (mail.tm)",
             "test_disposable_mail": "Test disposable mail API (mail.tm)",
+            "google_chrome_gmail_menu": "Gmail: list from Chrome + saved file → OAuth or web login",
+            "register_external_mail": "Register Cursor with personal email (Proton, etc.) — paste verification code",
+            "sign_in_email_password": "Sign in with email + password — save token & reset machine ID (like option 2)",
+            "logout_then_login_latest_saved": "Public Chrome: logout current Cursor web account, then login latest saved account",
+            "cat_register": "Sign up & accounts",
+            "cat_connect": "Sign in & token (web / CLI)",
+            "cat_launch": "Launch or quit Cursor",
+            "cat_maint": "Cursor maintenance",
+            "cat_config": "Configuration",
+            "cat_remote": "Remote node (SSH)",
+            "cat_more": "More (tests, sensitive actions)",
+            "submenu_back": "Back to main menu",
+            "submenu_prompt": "Submenu choice (0-{max})",
+            "submenu_register_title": "Sign up — pick a mode",
+            "submenu_connect_title": "Sign in — pick a mode",
+            "submenu_launch_title": "Launch / quit Cursor",
+            "submenu_maint_title": "Maintenance",
+            "submenu_config_title": "Configuration",
+            "submenu_remote_title": "Remote node",
+            "submenu_more_title": "More",
+        }
+
+    def _get_fallback_chrome_gmail_en(self):
+        return {
+            "section_title": "Gmail accounts (Chrome profiles + cursor_accounts.txt)",
+            "user_data": "Browser user data",
+            "no_user_data": "Browser user data folder not found — Chrome scan skipped.",
+            "none": "No Gmail addresses found (neither Chrome nor file).",
+            "pick_account": "Choose an account:",
+            "tag_chrome": "Chrome",
+            "tag_file_only": "file only",
+            "tag_password_file": "password in file",
+            "enter_number": "Number (0 = back)",
+            "chrome_profile_prompt": "Chrome profile [1-{n}]: ",
+            "action_oauth": "Google OAuth (browser + Chrome profile, updates Cursor token)",
+            "action_web_login": "Web sign-in: Google on Cursor, then Gmail email + password on Google",
+            "choose_action": "Choice [1-2]",
+            "using_saved_password": "Using password from cursor_accounts.txt",
+            "enter_password": "Gmail password: ",
+            "no_password": "Password is empty.",
+            "web_ok": "Web sign-in flow finished.",
+            "web_fail": "Failed or timed out.",
         }
 
     def load_translations(self):
@@ -327,11 +370,17 @@ class Translator:
                         continue
 
             if not loaded_any:
-                self.translations['en'] = {"menu": self._get_fallback_menu_en()}
+                self.translations['en'] = {
+                    "menu": self._get_fallback_menu_en(),
+                    "chrome_gmail": self._get_fallback_chrome_gmail_en(),
+                }
 
         except Exception as e:
             print(f"{Fore.RED}{EMOJI['ERROR']} Failed to load translations: {e}{Style.RESET_ALL}")
-            self.translations['en'] = {"menu": self._get_fallback_menu_en()}
+            self.translations['en'] = {
+                "menu": self._get_fallback_menu_en(),
+                "chrome_gmail": self._get_fallback_chrome_gmail_en(),
+            }
     
     def fix_arabic(self, text):
         if self.current_language == 'ar' and arabic_reshaper and get_display:
@@ -410,28 +459,16 @@ def print_menu():
     except:
         terminal_width = 80  # Default width
     
-    # Define all menu items
+    # Menu principal compact (détails dans les sous-menus)
     menu_items = {
         0: f"{Fore.GREEN}0{Style.RESET_ALL}. {EMOJI['ERROR']} {translator.get('menu.exit')}",
-        1: f"{Fore.GREEN}1{Style.RESET_ALL}. {EMOJI['RESET']} {translator.get('menu.reset')}",
-        2: f"{Fore.GREEN}2{Style.RESET_ALL}. {EMOJI['SUCCESS']} {translator.get('menu.register_manual')}",
-        3: f"{Fore.GREEN}3{Style.RESET_ALL}. {EMOJI['ERROR']} {translator.get('menu.quit')}",
-        4: f"{Fore.GREEN}4{Style.RESET_ALL}. {EMOJI['LANG']} {translator.get('menu.select_language')}",
-        5: f"{Fore.GREEN}5{Style.RESET_ALL}. {EMOJI['UPDATE']} {translator.get('menu.disable_auto_update')}",
-        6: f"{Fore.GREEN}6{Style.RESET_ALL}. {EMOJI['RESET']} {translator.get('menu.totally_reset')}",
-        7: f"{Fore.GREEN}7{Style.RESET_ALL}. {EMOJI['SETTINGS']}  {translator.get('menu.change_email_domain')}",
-        8: f"{Fore.GREEN}8{Style.RESET_ALL}. {EMOJI['SETTINGS']}  {translator.get('menu.config')}",
-        9: f"{Fore.GREEN}9{Style.RESET_ALL}. {EMOJI['UPDATE']}  {translator.get('menu.bypass_version_check')}",
-        10: f"{Fore.GREEN}10{Style.RESET_ALL}. {EMOJI['ERROR']}  {translator.get('menu.delete_google_account')}",
-        11: f"{Fore.GREEN}11{Style.RESET_ALL}. {EMOJI['SETTINGS']}  {translator.get('menu.delete_remote_user')}",
-        12: f"{Fore.GREEN}12{Style.RESET_ALL}. {EMOJI['ROCKET']} {translator.get('menu.open_cursor')}",
-        13: f"{Fore.GREEN}13{Style.RESET_ALL}. {EMOJI['ROCKET']} {translator.get('menu.quit_register_reopen')}",
-        14: f"{Fore.GREEN}14{Style.RESET_ALL}. {EMOJI['SETTINGS']}  {translator.get('menu.cleanup_remote_mail_users')}",
-        15: f"{Fore.GREEN}15{Style.RESET_ALL}. {EMOJI['SETTINGS']}  {translator.get('menu.reuse_existing_account')}",
-        16: f"{Fore.GREEN}16{Style.RESET_ALL}. {EMOJI['ROCKET']} {translator.get('menu.open_cli_login_private')}",
-        17: f"{Fore.GREEN}17{Style.RESET_ALL}. {EMOJI['SUN']} {translator.get('menu.google_saved_cli_login')}",
-        18: f"{Fore.GREEN}18{Style.RESET_ALL}. {EMOJI['MAIL']} {translator.get('menu.register_disposable')}",
-        19: f"{Fore.GREEN}19{Style.RESET_ALL}. {EMOJI['INFO']} {translator.get('menu.test_disposable_mail')}",
+        1: f"{Fore.GREEN}1{Style.RESET_ALL}. {EMOJI['SUCCESS']} {translator.get('menu.cat_register')}",
+        2: f"{Fore.GREEN}2{Style.RESET_ALL}. {EMOJI['ROCKET']} {translator.get('menu.cat_connect')}",
+        3: f"{Fore.GREEN}3{Style.RESET_ALL}. {EMOJI['ROCKET']} {translator.get('menu.cat_launch')}",
+        4: f"{Fore.GREEN}4{Style.RESET_ALL}. {EMOJI['RESET']} {translator.get('menu.cat_maint')}",
+        5: f"{Fore.GREEN}5{Style.RESET_ALL}. {EMOJI['SETTINGS']} {translator.get('menu.cat_config')}",
+        6: f"{Fore.GREEN}6{Style.RESET_ALL}. {EMOJI['SETTINGS']} {translator.get('menu.cat_remote')}",
+        7: f"{Fore.GREEN}7{Style.RESET_ALL}. {EMOJI['INFO']} {translator.get('menu.cat_more')}",
     }
     
     # Automatically calculate the number of menu items in the left and right columns
@@ -548,6 +585,296 @@ def select_language():
     except (ValueError, IndexError) as e:
         print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.lang_invalid_choice', lang_choices=f'0-{languages_count-1}')}{Style.RESET_ALL}")
         return False
+
+
+def _submenu_input(max_choice: int) -> str:
+    return input(
+        f"\n{EMOJI['ARROW']} {Fore.CYAN}"
+        f"{translator.get('menu.submenu_prompt', max=max_choice)}: {Style.RESET_ALL}"
+    ).strip()
+
+
+def _affirmative_response(raw: str) -> bool:
+    return raw.strip().lower() in ("o", "oui", "y", "yes", "1", "true")
+
+
+def _prompt_close_cursor_before_flow() -> bool:
+    """Demande (défaut : non) si l’utilisateur veut fermer Cursor. Retourne True si oui."""
+    try:
+        msg = (
+            translator.get("menu.prompt_close_cursor_before_auth")
+            if translator
+            else "Fermer Cursor avant ce flux ? [o/N] : "
+        )
+        raw = input(f"\n{EMOJI['ARROW']} {Fore.CYAN}{msg}{Style.RESET_ALL}")
+    except EOFError:
+        return False
+    if not _affirmative_response(raw):
+        return False
+    try:
+        import quit_cursor
+
+        quit_cursor.quit_cursor(translator)
+    except Exception:
+        pass
+    return True
+
+
+def _prompt_reopen_cursor_after_success() -> None:
+    """Demande (défaut : non) si l’utilisateur veut rouvrir Cursor après un flux réussi."""
+    try:
+        msg = (
+            translator.get("menu.prompt_reopen_cursor_after_auth")
+            if translator
+            else "Rouvrir Cursor après succès ? [o/N] : "
+        )
+        raw = input(f"\n{EMOJI['ARROW']} {Fore.CYAN}{msg}{Style.RESET_ALL}")
+    except EOFError:
+        return
+    if not _affirmative_response(raw):
+        return
+    _open_cursor_after_success()
+
+
+def _open_cursor_after_success() -> None:
+    try:
+        import cursor_launcher
+
+        cursor_launcher.open_cursor(translator)
+    except Exception:
+        pass
+
+
+def _run_total_reset_before_flow() -> bool:
+    """Exécute l'équivalent du menu 4->2 avant certains flux d'inscription."""
+    try:
+        import totally_reset_cursor
+
+        print(
+            f"\n{Fore.CYAN}{EMOJI['RESET']} "
+            f"{translator.get('menu.totally_reset')} (pré-run)...{Style.RESET_ALL}"
+        )
+        totally_reset_cursor.run(translator, wait_for_enter=False)
+        return True
+    except Exception as e:
+        print(
+            f"{Fore.RED}{EMOJI['ERROR']} "
+            f"{translator.get('menu.error_occurred', error=str(e)) if translator else f'Error occurred: {e}'}"
+            f"{Style.RESET_ALL}"
+        )
+        return False
+
+
+def submenu_register():
+    """Inscription : e-mail perso, jetable, code manuel, réutilisation."""
+    print(f"\n{Fore.CYAN}{EMOJI['SUCCESS']} {translator.get('menu.submenu_register_title')}:{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}0{Style.RESET_ALL}. {translator.get('menu.submenu_back')}")
+    print(f"{Fore.GREEN}1{Style.RESET_ALL}. {translator.get('menu.register_manual')}")
+    print(f"{Fore.GREEN}2{Style.RESET_ALL}. {translator.get('menu.register_external_mail')}")
+    print(f"{Fore.GREEN}3{Style.RESET_ALL}. {translator.get('menu.register_disposable')}")
+    print(f"{Fore.GREEN}4{Style.RESET_ALL}. {translator.get('menu.reuse_existing_account')}")
+    c = _submenu_input(4)
+    if c == "1":
+        import cursor_register_manual
+        if _prompt_close_cursor_before_flow():
+            if not _run_total_reset_before_flow():
+                return
+        ok = cursor_register_manual.main(translator, wait_for_enter=False)
+        if ok:
+            _prompt_reopen_cursor_after_success()
+    elif c == "2":
+        import cursor_register_manual
+        if _prompt_close_cursor_before_flow():
+            if not _run_total_reset_before_flow():
+                return
+        ok = cursor_register_manual.main_external_mail(translator, wait_for_enter=False)
+        if ok:
+            _prompt_reopen_cursor_after_success()
+    elif c == "3":
+        import cursor_register_disposable
+        if _prompt_close_cursor_before_flow():
+            if not _run_total_reset_before_flow():
+                return
+        ok = cursor_register_disposable.main(translator, wait_for_enter=False)
+        if ok:
+            _prompt_reopen_cursor_after_success()
+    elif c == "4":
+        import cursor_register_manual
+        if _prompt_close_cursor_before_flow():
+            if not _run_total_reset_before_flow():
+                return
+        ok = cursor_register_manual.reuse_existing_account(translator)
+        if ok:
+            _prompt_reopen_cursor_after_success()
+    elif c not in ("0", ""):
+        print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")
+
+
+def submenu_connect():
+    """Connexion web / CLI, enregistrement jeton."""
+    print(f"\n{Fore.CYAN}{EMOJI['ROCKET']} {translator.get('menu.submenu_connect_title')}:{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}0{Style.RESET_ALL}. {translator.get('menu.submenu_back')}")
+    print(f"{Fore.GREEN}1{Style.RESET_ALL}. {translator.get('menu.sign_in_email_password')}")
+    print(f"{Fore.GREEN}2{Style.RESET_ALL}. {translator.get('menu.google_saved_cli_login')}")
+    print(f"{Fore.GREEN}3{Style.RESET_ALL}. {translator.get('menu.google_chrome_gmail_menu')}")
+    print(f"{Fore.GREEN}4{Style.RESET_ALL}. {translator.get('menu.open_cli_login_private')}")
+    print(f"{Fore.GREEN}5{Style.RESET_ALL}. {translator.get('menu.logout_then_login_latest_saved')}")
+    c = _submenu_input(5)
+    if c == "1":
+        import cursor_register_manual
+        _prompt_close_cursor_before_flow()
+        ok = cursor_register_manual.main_sign_in_email_password(translator, wait_for_enter=False)
+        if ok:
+            _prompt_reopen_cursor_after_success()
+    elif c == "2":
+        import agent_cli_helper
+        agent_cli_helper.run_google_saved_login(translator)
+    elif c == "3":
+        import google_chrome_accounts_menu
+        google_chrome_accounts_menu.run(translator)
+    elif c == "4":
+        import agent_cli_helper
+        agent_cli_helper.run(translator)
+    elif c == "5":
+        import agent_cli_helper
+        agent_cli_helper.run_logout_then_login_latest_saved(translator)
+    elif c not in ("0", ""):
+        print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")
+
+
+def submenu_launch():
+    print(f"\n{Fore.CYAN}{EMOJI['ROCKET']} {translator.get('menu.submenu_launch_title')}:{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}0{Style.RESET_ALL}. {translator.get('menu.submenu_back')}")
+    print(f"{Fore.GREEN}1{Style.RESET_ALL}. {translator.get('menu.open_cursor')}")
+    print(f"{Fore.GREEN}2{Style.RESET_ALL}. {translator.get('menu.quit')}")
+    print(f"{Fore.GREEN}3{Style.RESET_ALL}. {translator.get('menu.quit_register_reopen')}")
+    c = _submenu_input(3)
+    if c == "1":
+        import cursor_launcher
+        cursor_launcher.open_cursor(translator)
+    elif c == "2":
+        import quit_cursor
+        quit_cursor.quit_cursor(translator)
+    elif c == "3":
+        import cursor_launcher
+        cursor_launcher.run_quit_register_reopen(translator)
+    elif c not in ("0", ""):
+        print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")
+
+
+def submenu_maintenance():
+    print(f"\n{Fore.CYAN}{EMOJI['RESET']} {translator.get('menu.submenu_maint_title')}:{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}0{Style.RESET_ALL}. {translator.get('menu.submenu_back')}")
+    print(f"{Fore.GREEN}1{Style.RESET_ALL}. {translator.get('menu.reset')}")
+    print(f"{Fore.GREEN}2{Style.RESET_ALL}. {translator.get('menu.totally_reset')}")
+    print(f"{Fore.GREEN}3{Style.RESET_ALL}. {translator.get('menu.disable_auto_update')}")
+    print(f"{Fore.GREEN}4{Style.RESET_ALL}. {translator.get('menu.bypass_version_check')}")
+    c = _submenu_input(4)
+    if c == "1":
+        import reset_machine_manual
+        reset_machine_manual.run(translator)
+    elif c == "2":
+        import totally_reset_cursor
+        totally_reset_cursor.run(translator)
+    elif c == "3":
+        import disable_auto_update
+        disable_auto_update.run(translator)
+    elif c == "4":
+        import bypass_version
+        bypass_version.main(translator)
+    elif c not in ("0", ""):
+        print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")
+
+
+def submenu_configuration():
+    print(f"\n{Fore.CYAN}{EMOJI['SETTINGS']} {translator.get('menu.submenu_config_title')}:{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}0{Style.RESET_ALL}. {translator.get('menu.submenu_back')}")
+    print(f"{Fore.GREEN}1{Style.RESET_ALL}. {translator.get('menu.select_language')}")
+    print(f"{Fore.GREEN}2{Style.RESET_ALL}. {translator.get('menu.config')}")
+    print(f"{Fore.GREEN}3{Style.RESET_ALL}. {translator.get('menu.change_email_domain')}")
+    c = _submenu_input(3)
+    if c == "1":
+        select_language()
+    elif c == "2":
+        from config import print_config
+        print_config(get_config(), translator)
+    elif c == "3":
+        import cursor_register_manual
+        cursor_register_manual.change_email_domain(translator)
+    elif c not in ("0", ""):
+        print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")
+
+
+def submenu_remote():
+    print(f"\n{Fore.CYAN}{EMOJI['SETTINGS']} {translator.get('menu.submenu_remote_title')}:{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}0{Style.RESET_ALL}. {translator.get('menu.submenu_back')}")
+    print(f"{Fore.GREEN}1{Style.RESET_ALL}. {translator.get('menu.delete_remote_user')}")
+    print(f"{Fore.GREEN}2{Style.RESET_ALL}. {translator.get('menu.cleanup_remote_mail_users')}")
+    c = _submenu_input(2)
+    if c == "1":
+        from remote_user_manager import delete_remote_user
+        cfg = get_config(translator)
+        if cfg and cfg.has_section('RemoteNode') and cfg.get('RemoteNode', 'enabled', fallback='false').strip().lower() in ('true', '1', 'yes'):
+            host = cfg.get('RemoteNode', 'host', fallback='').strip()
+            user = cfg.get('RemoteNode', 'user', fallback='pi').strip() or 'pi'
+            remove_home = cfg.get('RemoteNode', 'remove_home_on_delete', fallback='true').strip().lower() in ('true', '1', 'yes')
+            if host:
+                uname = input(f"{translator.get('remote_user.enter_username') if translator else 'Nom d\'utilisateur à supprimer:'} ").strip()
+                if uname:
+                    delete_remote_user(uname, host, user, remove_home=remove_home, translator=translator)
+            else:
+                print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('remote_user.host_not_configured') if translator else 'RemoteNode host non configuré.'}{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('remote_user.not_enabled') if translator else 'RemoteNode désactivé.'}{Style.RESET_ALL}")
+    elif c == "2":
+        from remote_user_manager import (
+            cleanup_mail_style_users_on_remote,
+            find_mail_style_users_on_remote,
+            get_cleanup_skip_usernames,
+        )
+        cfg = get_config(translator)
+        if cfg and cfg.has_section("RemoteNode") and cfg.get("RemoteNode", "enabled", fallback="false").strip().lower() in ("true", "1", "yes"):
+            host = cfg.get("RemoteNode", "host", fallback="").strip()
+            user = cfg.get("RemoteNode", "user", fallback="pi").strip() or "pi"
+            remove_home = cfg.get("RemoteNode", "remove_home_on_delete", fallback="true").strip().lower() in ("true", "1", "yes")
+            if host:
+                skip = get_cleanup_skip_usernames(cfg)
+                found = find_mail_style_users_on_remote(host, user, skip_usernames=skip)
+                if not found:
+                    print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('remote_user.cleanup_none') if translator else 'Aucun compte firstname_lastname trouvé sous /home.'}{Style.RESET_ALL}")
+                else:
+                    print(f"\n{Fore.CYAN}{translator.get('remote_user.cleanup_found', count=len(found), users=', '.join(found))}{Style.RESET_ALL}")
+                    yn = (input(f"{translator.get('remote_user.cleanup_confirm') if translator else 'Supprimer ces comptes avec deluser --remove-home ? (oui/non): '} ").strip().lower())
+                    if yn in ("oui", "o", "yes", "y"):
+                        ok, fail, _ = cleanup_mail_style_users_on_remote(
+                            host, user, remove_home=remove_home, skip_usernames=skip, translator=translator
+                        )
+                        print(f"{Fore.GREEN if fail == 0 else Fore.YELLOW}{EMOJI['INFO']} {translator.get('remote_user.cleanup_summary', ok=ok, fail=fail) if translator else f'Terminé : {ok} supprimé(s), {fail} échec(s).'}{Style.RESET_ALL}")
+                    else:
+                        print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('remote_user.cleanup_cancelled') if translator else 'Annulé.'}{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('remote_user.host_not_configured') if translator else 'RemoteNode host non configuré.'}{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('remote_user.not_enabled') if translator else 'RemoteNode désactivé.'}{Style.RESET_ALL}")
+    elif c not in ("0", ""):
+        print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")
+
+
+def submenu_more():
+    print(f"\n{Fore.CYAN}{EMOJI['INFO']} {translator.get('menu.submenu_more_title')}:{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}0{Style.RESET_ALL}. {translator.get('menu.submenu_back')}")
+    print(f"{Fore.GREEN}1{Style.RESET_ALL}. {translator.get('menu.test_disposable_mail')}")
+    print(f"{Fore.GREEN}2{Style.RESET_ALL}. {translator.get('menu.delete_google_account')}")
+    c = _submenu_input(2)
+    if c == "1":
+        import cursor_register_disposable
+        cursor_register_disposable.test_mail_api(translator)
+    elif c == "2":
+        import delete_cursor_google
+        delete_cursor_google.main(translator)
+    elif c not in ("0", ""):
+        print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")
+
 
 def check_latest_version():
     """Check if current version matches the latest release version"""
@@ -764,7 +1091,7 @@ def main():
     
     while True:
         try:
-            choice_num = 19
+            choice_num = 7
             choice = input(f"\n{EMOJI['ARROW']} {Fore.CYAN}{translator.get('menu.input_choice', choices=f'0-{choice_num}')}: {Style.RESET_ALL}")
 
             match choice:
@@ -773,119 +1100,25 @@ def main():
                     print(f"{Fore.CYAN}{'═' * 50}{Style.RESET_ALL}")
                     return
                 case "1":
-                    import reset_machine_manual
-                    reset_machine_manual.run(translator)
-                    print_menu()   
+                    submenu_register()
+                    print_menu()
                 case "2":
-                    import cursor_register_manual
-                    cursor_register_manual.main(translator)
-                    print_menu()    
+                    submenu_connect()
+                    print_menu()
                 case "3":
-                    import quit_cursor
-                    quit_cursor.quit_cursor(translator)
+                    submenu_launch()
                     print_menu()
                 case "4":
-                    if select_language():
-                        print_menu()
-                    continue
+                    submenu_maintenance()
+                    print_menu()
                 case "5":
-                    import disable_auto_update
-                    disable_auto_update.run(translator)
+                    submenu_configuration()
                     print_menu()
                 case "6":
-                    import totally_reset_cursor
-                    totally_reset_cursor.run(translator)
+                    submenu_remote()
                     print_menu()
                 case "7":
-                    import cursor_register_manual
-                    cursor_register_manual.change_email_domain(translator)
-                    print_menu()
-                case "8":
-                    from config import print_config
-                    print_config(get_config(), translator)
-                    print_menu()
-                case "9":
-                    import bypass_version
-                    bypass_version.main(translator)
-                    print_menu()
-                case "10":
-                    import delete_cursor_google
-                    delete_cursor_google.main(translator)
-                    print_menu()
-                case "11":
-                    from remote_user_manager import delete_remote_user
-                    cfg = get_config(translator)
-                    if cfg and cfg.has_section('RemoteNode') and cfg.get('RemoteNode', 'enabled', fallback='false').strip().lower() in ('true', '1', 'yes'):
-                        host = cfg.get('RemoteNode', 'host', fallback='').strip()
-                        user = cfg.get('RemoteNode', 'user', fallback='pi').strip() or 'pi'
-                        remove_home = cfg.get('RemoteNode', 'remove_home_on_delete', fallback='true').strip().lower() in ('true', '1', 'yes')
-                        if host:
-                            uname = input(f"{translator.get('remote_user.enter_username') if translator else 'Nom d\'utilisateur à supprimer:'} ").strip()
-                            if uname:
-                                delete_remote_user(uname, host, user, remove_home=remove_home, translator=translator)
-                        else:
-                            print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('remote_user.host_not_configured') if translator else 'RemoteNode host non configuré.'}{Style.RESET_ALL}")
-                    else:
-                        print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('remote_user.not_enabled') if translator else 'RemoteNode désactivé. Activez-le dans la config (option 8).'}{Style.RESET_ALL}")
-                    print_menu()
-                case "12":
-                    import cursor_launcher
-                    cursor_launcher.open_cursor(translator)
-                    print_menu()
-                case "13":
-                    import cursor_launcher
-                    cursor_launcher.run_quit_register_reopen(translator)
-                    print_menu()
-                case "14":
-                    from remote_user_manager import (
-                        cleanup_mail_style_users_on_remote,
-                        find_mail_style_users_on_remote,
-                        get_cleanup_skip_usernames,
-                    )
-                    cfg = get_config(translator)
-                    if cfg and cfg.has_section("RemoteNode") and cfg.get("RemoteNode", "enabled", fallback="false").strip().lower() in ("true", "1", "yes"):
-                        host = cfg.get("RemoteNode", "host", fallback="").strip()
-                        user = cfg.get("RemoteNode", "user", fallback="pi").strip() or "pi"
-                        remove_home = cfg.get("RemoteNode", "remove_home_on_delete", fallback="true").strip().lower() in ("true", "1", "yes")
-                        if host:
-                            skip = get_cleanup_skip_usernames(cfg)
-                            found = find_mail_style_users_on_remote(host, user, skip_usernames=skip)
-                            if not found:
-                                print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('remote_user.cleanup_none') if translator else 'Aucun compte firstname_lastname trouvé sous /home.'}{Style.RESET_ALL}")
-                            else:
-                                print(f"\n{Fore.CYAN}{translator.get('remote_user.cleanup_found', count=len(found), users=', '.join(found))}{Style.RESET_ALL}")
-                                yn = (input(f"{translator.get('remote_user.cleanup_confirm') if translator else 'Supprimer ces comptes avec deluser --remove-home ? (oui/non): '} ").strip().lower())
-                                if yn in ("oui", "o", "yes", "y"):
-                                    ok, fail, _ = cleanup_mail_style_users_on_remote(
-                                        host, user, remove_home=remove_home, skip_usernames=skip, translator=translator
-                                    )
-                                    print(f"{Fore.GREEN if fail == 0 else Fore.YELLOW}{EMOJI['INFO']} {translator.get('remote_user.cleanup_summary', ok=ok, fail=fail) if translator else f'Terminé : {ok} supprimé(s), {fail} échec(s).'}{Style.RESET_ALL}")
-                                else:
-                                    print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('remote_user.cleanup_cancelled') if translator else 'Annulé.'}{Style.RESET_ALL}")
-                        else:
-                            print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('remote_user.host_not_configured') if translator else 'RemoteNode host non configuré.'}{Style.RESET_ALL}")
-                    else:
-                        print(f"{Fore.YELLOW}{EMOJI['INFO']} {translator.get('remote_user.not_enabled') if translator else 'RemoteNode désactivé. Activez-le dans la config (option 8).'}{Style.RESET_ALL}")
-                    print_menu()
-                case "15":
-                    import cursor_register_manual
-                    cursor_register_manual.reuse_existing_account(translator)
-                    print_menu()
-                case "16":
-                    import agent_cli_helper
-                    agent_cli_helper.run(translator)
-                    print_menu()
-                case "17":
-                    import agent_cli_helper
-                    agent_cli_helper.run_google_saved_login(translator)
-                    print_menu()
-                case "18":
-                    import cursor_register_disposable
-                    cursor_register_disposable.main(translator)
-                    print_menu()
-                case "19":
-                    import cursor_register_disposable
-                    cursor_register_disposable.test_mail_api(translator)
+                    submenu_more()
                     print_menu()
                 case _:
                     print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")

@@ -21,6 +21,8 @@ install.bat
 run.bat
 
 temp_account_info.txt
+radar_challenge_log.txt
+test_accounts.txt
 
 .env copy
 
@@ -31,6 +33,7 @@ dist/
 
 credentials.txt
 cursor_accounts.txt
+cursor_domain.txt
 recaptcha.py
 install_requirements.bat
 

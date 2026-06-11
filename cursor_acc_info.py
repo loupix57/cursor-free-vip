@@ -282,6 +282,60 @@ def format_subscription_type(subscription_data: Dict) -> str:
     
     return "Free"
 
+
+def get_subscription_label_for_token(token: str) -> str:
+    """
+    Libellé d’abonnement Cursor (Free, Pro, …) via l’API ``full_stripe_profile``,
+    même logique que l’affichage du menu — sans gratter le HTML du dashboard.
+    """
+    if not (token or "").strip():
+        return "Unknown"
+    try:
+        data = UsageManager.get_stripe_profile(token.strip())
+        if data:
+            return format_subscription_type(data)
+    except Exception:
+        pass
+    return "Free"
+
+
+def get_usage_summary_for_token(token: str) -> Dict:
+    """
+    Retourne un résumé d’usage fiable via l’API ``/api/usage``.
+    Sert à détecter une limite atteinte sans dépendre du HTML du dashboard.
+    """
+    out = {
+        "premium_usage": None,
+        "max_premium_usage": None,
+        "basic_usage": None,
+        "max_basic_usage": None,
+        "premium_limit_reached": None,
+    }
+    if not (token or "").strip():
+        return out
+    info = None
+    try:
+        info = UsageManager.get_usage(token.strip())
+    except Exception:
+        info = None
+    if not info:
+        return out
+    out["premium_usage"] = info.get("premium_usage")
+    out["max_premium_usage"] = info.get("max_premium_usage")
+    out["basic_usage"] = info.get("basic_usage")
+    out["max_basic_usage"] = info.get("max_basic_usage")
+    reached = None
+    try:
+        pu = out["premium_usage"]
+        ml = out["max_premium_usage"]
+        if isinstance(pu, (int, float)) and isinstance(ml, (int, float)) and ml > 0:
+            reached = pu >= ml
+    except Exception:
+        reached = None
+    out["premium_limit_reached"] = reached
+    return out
+
+
 def get_email_from_storage(storage_path):
     """get email from storage.json"""
     if not os.path.exists(storage_path):
@@ -307,39 +361,29 @@ def get_email_from_sqlite(sqlite_path):
     """get email from sqlite"""
     if not os.path.exists(sqlite_path):
         return None
-        
+
     try:
         conn = sqlite3.connect(sqlite_path)
         cursor = conn.cursor()
-        # try to query records containing email
-        cursor.execute("SELECT value FROM ItemTable WHERE key LIKE '%email%' OR key LIKE '%cursorAuth%'")
-        rows = cursor.fetchall()
+        cursor.execute(
+            "SELECT value FROM ItemTable WHERE key = ?",
+            ("cursorAuth/cachedEmail",),
+        )
+        row = cursor.fetchone()
+        if row and isinstance(row[0], str) and "@" in row[0]:
+            conn.close()
+            return row[0].strip()
+
+        cursor.execute("SELECT value FROM ItemTable WHERE key LIKE '%cachedEmail%'")
+        for row in cursor.fetchall():
+            value = row[0]
+            if isinstance(value, str) and "@" in value:
+                conn.close()
+                return value.strip()
         conn.close()
-        
-        for row in rows:
-            try:
-                value = row[0]
-                # if it's a string and contains @, it might be an email
-                if isinstance(value, str) and '@' in value:
-                    return value
-                
-                # try to parse JSON
-                try:
-                    data = json.loads(value)
-                    if isinstance(data, dict):
-                        # check if there's an email field
-                        if 'email' in data:
-                            return data['email']
-                        # check if there's a cachedEmail field
-                        if 'cachedEmail' in data:
-                            return data['cachedEmail']
-                except:
-                    pass
-            except:
-                continue
     except Exception as e:
         logger.error(f"get email from sqlite failed: {str(e)}")
-    
+
     return None
 
 def display_account_info(translator=None):

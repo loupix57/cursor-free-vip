@@ -8,7 +8,7 @@ import sys
 import random
 import string
 from colorama import Fore, Style, init
-from cursor_auth import CursorAuth
+from cursor_auth import apply_cursor_session
 
 # Initialize colorama
 init(autoreset=True)
@@ -108,12 +108,12 @@ def main(translator=None):
     print(f"\n{Fore.CYAN}{EMOJI['UPDATE']} {translator.get('manual_auth.updating_database') if translator else 'Updating Cursor authentication database...'}{Style.RESET_ALL}")
     
     try:
-        cursor_auth = CursorAuth(translator)
-        result = cursor_auth.update_auth(
+        result = apply_cursor_session(
+            translator=translator,
             email=email,
             access_token=token,
             refresh_token=token,
-            auth_type=auth_type
+            auth_type=auth_type,
         )
         
         if result:

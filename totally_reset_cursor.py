@@ -834,7 +834,7 @@ class MachineIDResetter:
             print(f"{Fore.RED}{EMOJI['ERROR']} {error_msg}{Style.RESET_ALL}")
             return False
 
-def run(translator=None):
+def run(translator=None, wait_for_enter: bool = True):
     config = get_config(translator)
     if not config:
         return False
@@ -846,7 +846,8 @@ def run(translator=None):
     resetter.reset_machine_ids()
 
     print(f"\n{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
-    input(f"{EMOJI['INFO']} {translator.get('reset.press_enter')}...")
+    if wait_for_enter:
+        input(f"{EMOJI['INFO']} {translator.get('reset.press_enter')}...")
 
 if __name__ == "__main__":
     from main import translator as main_translator

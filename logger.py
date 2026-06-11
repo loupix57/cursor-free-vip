@@ -16,8 +16,28 @@ LOG_FILE_NAME = "cursor-free-vip.log"
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
+# Fichiers .txt éphémères à la racine du projet (supprimés à chaque démarrage).
+EPHEMERAL_TXT_LOGS = (
+    "radar_challenge_log.txt",
+    "test_accounts.txt",
+    "temp_account_info.txt",
+)
+
 _log_initialized = False
 _file_handler = None
+
+
+def cleanup_ephemeral_txt_logs(project_root=None):
+    """Supprime les journaux .txt temporaires créés lors des runs précédents."""
+    if project_root is None:
+        project_root = os.path.dirname(os.path.abspath(__file__))
+    for name in EPHEMERAL_TXT_LOGS:
+        path = os.path.join(project_root, name)
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 def get_log_dir():
@@ -44,6 +64,8 @@ def setup_logging(
 
     if _log_initialized:
         return
+
+    cleanup_ephemeral_txt_logs()
 
     if level is None:
         # Réduire le bruit par défaut : WARNING au lieu de INFO.

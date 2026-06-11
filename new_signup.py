@@ -14,6 +14,29 @@ from logger import get_logger
 
 log = get_logger("new_signup")
 
+# Persistencia des événements radar-challenge
+_RADAR_CHALLENGE_LOG_PATH = os.path.join(os.path.dirname(__file__), "radar_challenge_log.txt")
+
+
+def _log_radar_challenge(email, url: str = "") -> None:
+    """
+    Écrit une ligne dans ``radar_challenge_log.txt`` quand Cursor déclenche un radar-challenge.
+    Format : iso_ts|email|domain|url
+    """
+    try:
+        if not email or "@" not in email:
+            return
+        domain = (email.rsplit("@", 1)[-1] or "").strip().lower()
+        if not domain:
+            return
+        ts = time.strftime("%Y-%m-%dT%H:%M:%S")
+        line = f"{ts}|{email}|{domain}|{(url or '').strip()}\n"
+        with open(_RADAR_CHALLENGE_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        # Ne jamais bloquer le flux d'inscription à cause du log
+        return
+
 # Add global variable at the beginning of the file
 _translator = None
 
@@ -591,12 +614,12 @@ def _is_human_gate_success(page) -> bool:
         return False
 
 
-def handle_post_verification_onboarding(page, config, translator=None):
+def handle_post_verification_onboarding(page, config, translator=None, email: str = ""):
     """
     Étapes à franchir avant de rafraîchir le token (dans l'ordre possible) :
     1) Data Sharing (cursor.com/dashboard) : toggle "Share Data" OFF puis Continue
     2) Customize Your Experience (onboarding/role) : Maybe Later ou Continue
-    3) Claim your free Pro trial (trial) : Skip for now
+    3) Select a plan (trial) : cocher « no marketing emails », puis « Start with Free plan » (ou « Skip for now »)
     4) Review Settings (dashboard) : Continue
     On boucle jusqu'à 6 étapes ou jusqu'à arriver sur settings.
     """
@@ -641,6 +664,7 @@ def handle_post_verification_onboarding(page, config, translator=None):
 
                 # Blocage anti-abus côté Cursor : vérification téléphone/SMS obligatoire.
                 if _is_phone_verification_challenge(page, url):
+                    _log_radar_challenge(email, url)
                     print(
                         f"{Fore.YELLOW}⚠️ Phone verification challenge detected (radar-challenge). "
                         f"Automatic flow is paused here and requires manual completion in browser.{Style.RESET_ALL}"
@@ -650,12 +674,13 @@ def handle_post_verification_onboarding(page, config, translator=None):
                 # Vérifier très tôt à CHAQUE étape si le partage de données est activé.
                 _ensure_share_data_disabled(page, translator)
 
-                # Page /trial : case marketing + « Skip for now » uniquement (ne pas cliquer « Continue » ni sauter vers start-download).
+                # Page /trial : case marketing + « Start with Free plan » (ne pas cliquer le gros bouton « Continue »).
                 if '/trial' in url and 'cursor.com' in url:
                     _ensure_trial_marketing_opt_out_checkbox(page, translator)
-                    if _safe_click_skip_for_now_trial(page, translator):
+                    trial_action = _safe_click_trial_free_plan(page, translator)
+                    if trial_action:
                         clicked = True
-                        _log_step(step, "Skip for now", translator)
+                        _log_step(step, trial_action, translator)
                         time.sleep(get_random_wait_time(config, 'page_load_wait'))
                         continue
 
@@ -817,7 +842,7 @@ def handle_post_verification_onboarding(page, config, translator=None):
 
             # 2) Boutons / liens génériques : Skip for now, Maybe later, Continue, etc.
             # Sur l’écran Connect GitHub/GitLab, ne pas enchaîner des clics génériques qui pourraient viser le mauvais contrôle.
-            # Sur /trial : ne JAMAIS cliquer « Continue » (paiement / suite) — uniquement Skip for now.
+            # Sur /trial : ne JAMAIS cliquer « Continue » (paiement / suite) — uniquement plan gratuit.
             try:
                 cur_u = page.url if hasattr(page, "url") else ""
             except Exception:
@@ -827,11 +852,12 @@ def handle_post_verification_onboarding(page, config, translator=None):
             if not (_is_connect_provider_setup_page(page) and not clicked):
                 if on_trial and not clicked:
                     _ensure_trial_marketing_opt_out_checkbox(page, translator)
-                    if _safe_click_skip_for_now_trial(page, translator):
+                    trial_action = _safe_click_trial_free_plan(page, translator)
+                    if trial_action:
                         clicked = True
-                        _log_step(step, "Skip for now", translator)
+                        _log_step(step, trial_action, translator)
                 btn_labels = (
-                    ("Skip for now", "Maybe Later", "Maybe later", "Skip", "Passer", "Plus tard")
+                    ("Start with Free plan", "Start with free plan", "Skip for now", "Maybe Later", "Maybe later", "Skip", "Passer", "Plus tard")
                     if on_trial
                     else ("Skip for now", "Maybe Later", "Maybe later", "Continue", "Continuer", "Let me later", "Plus tard", "Skip", "Passer")
                 )
@@ -849,7 +875,7 @@ def handle_post_verification_onboarding(page, config, translator=None):
                         continue
                 if not clicked:
                     link_labels = (
-                        ("Skip for now", "Maybe Later", "Maybe later", "Plus tard")
+                        ("Start with Free plan", "Start with free plan", "Skip for now", "Maybe Later", "Maybe later", "Plus tard")
                         if on_trial
                         else ("Skip for now", "Maybe Later", "Maybe later", "Continue", "Continuer", "Plus tard")
                     )
@@ -1024,7 +1050,7 @@ def _safe_click_maybe_later_on_provider_setup(page, translator=None):
 
 def _ensure_trial_marketing_opt_out_checkbox(page, translator=None):
     """
-    Page Pro /trial : coche « I do not want to receive marketing emails from Cursor » si présente et pas déjà cochée.
+    Page « Select a plan » (/trial) : coche « I do not want to receive marketing emails from Cursor » si présente.
     """
     try:
         xpaths = [
@@ -1032,12 +1058,15 @@ def _ensure_trial_marketing_opt_out_checkbox(page, translator=None):
             'xpath://label[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "do not want to receive")]//input[@type="checkbox"]',
             'xpath://input[@type="checkbox"][ancestor::*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "marketing emails")]]',
             'xpath://input[@type="checkbox"][ancestor::*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "do not want to receive")]]',
+            'xpath://*[@role="checkbox"][ancestor::*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "marketing emails")]]',
+            'xpath://*[@role="checkbox"][ancestor::*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "do not want to receive")]]',
+            'xpath://button[@role="checkbox"][ancestor::*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "marketing emails")]]',
         ]
         for xp in xpaths:
             cb = page.ele(xp, timeout=0.6)
             if not cb:
                 continue
-            checked = str(cb.attr("checked") or "").lower() in ("true", "checked", "1")
+            checked = str(cb.attr("checked") or cb.attr("aria-checked") or "").lower() in ("true", "checked", "1")
             try:
                 if hasattr(cb, "states") and cb.states and getattr(cb.states, "is_selected", None):
                     checked = checked or bool(cb.states.is_selected)
@@ -1065,33 +1094,66 @@ def _ensure_trial_marketing_opt_out_checkbox(page, translator=None):
     return False
 
 
-def _safe_click_skip_for_now_trial(page, translator=None):
+def _safe_click_trial_free_plan(page, translator=None):
     """
-    Page /trial : clic uniquement sur le lien/bouton « Skip for now » (sous Continue).
-    Ne pas utiliser la boucle générique : elle cliquait sur « Continue » avant le lien.
+    Page /trial (« Select a plan to get started ») : clic sur « Start with Free plan »,
+    ou repli sur « Skip for now ». Ne jamais cliquer le bouton principal « Continue ».
+    Retourne le libellé cliqué (str) ou False.
     """
-    xpaths = [
-        'xpath://a[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "skip for now")]',
-        'xpath://button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "skip for now")]',
-        'xpath://*[@role="link" and contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "skip for now")]',
-    ]
-    for xp in xpaths:
-        try:
-            el = page.ele(xp, timeout=0.9)
-            if not el:
+    targets = (
+        (
+            "start with free plan",
+            "Start with Free plan",
+            [
+                'xpath://a[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "start with free plan")]',
+                'xpath://button[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "start with free plan")]',
+                'xpath://a[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "free plan") and not(contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "continue"))]',
+                'xpath://*[@role="link" and contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "free plan")]',
+            ],
+        ),
+        (
+            "skip for now",
+            "Skip for now",
+            [
+                'xpath://a[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "skip for now")]',
+                'xpath://button[contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "skip for now")]',
+                'xpath://*[@role="link" and contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "skip for now")]',
+            ],
+        ),
+    )
+    for needle, log_label, xpaths in targets:
+        for xp in xpaths:
+            try:
+                el = page.ele(xp, timeout=0.9)
+                if not el:
+                    continue
+                raw = (getattr(el, "text", None) or "").strip().lower()
+                try:
+                    aria = el.attr("aria-label") if hasattr(el, "attr") else None
+                    if aria:
+                        raw = f"{raw} {aria}".strip().lower()
+                except Exception:
+                    pass
+                if needle not in raw and not (
+                    needle == "start with free plan" and "free plan" in raw
+                ):
+                    continue
+                if "continue" in raw and needle not in raw:
+                    continue
+                el.click()
+                if translator:
+                    print(
+                        f"{Fore.CYAN}ℹ️ Clic sécurisé sur « {log_label} » (page trial).{Style.RESET_ALL}"
+                    )
+                return log_label
+            except Exception:
                 continue
-            raw = (getattr(el, "text", None) or "").strip().lower()
-            if "skip for now" not in raw:
-                continue
-            if "continue" in raw and "skip" not in raw:
-                continue
-            el.click()
-            if translator:
-                print(f"{Fore.CYAN}ℹ️ Clic sécurisé sur « Skip for now » (page trial).{Style.RESET_ALL}")
-            return True
-        except Exception:
-            continue
     return False
+
+
+def _safe_click_skip_for_now_trial(page, translator=None):
+    """Alias rétrocompatibilité — préférer _safe_click_trial_free_plan."""
+    return bool(_safe_click_trial_free_plan(page, translator))
 
 
 def _ensure_share_data_disabled(page, translator=None):
@@ -1141,7 +1203,7 @@ def _ensure_share_data_disabled(page, translator=None):
     return False
 
 
-def run_onboarding_and_go_to_settings(browser_tab, config, translator=None):
+def run_onboarding_and_go_to_settings(browser_tab, config, translator=None, email: str = ""):
     """
     Centralise la séquence après la réussite de la vérification :
     - si l’on est tombé directement sur /trial, on force un passage préalable par /onboarding/role
@@ -1166,7 +1228,7 @@ def run_onboarding_and_go_to_settings(browser_tab, config, translator=None):
         pass
 
     # 1) Passer les écrans d’onboarding (role → trial → start-download / dashboard)
-    if not handle_post_verification_onboarding(browser_tab, config, translator):
+    if not handle_post_verification_onboarding(browser_tab, config, translator, email=email):
         return False
 
     # 2) Aller sur la page settings pour lire le cookie
@@ -1176,7 +1238,7 @@ def run_onboarding_and_go_to_settings(browser_tab, config, translator=None):
     time.sleep(get_random_wait_time(config, 'settings_page_load_wait'))
 
     # 3) Dernière passe au cas où Cursor affiche encore un écran intermédiaire
-    if not handle_post_verification_onboarding(browser_tab, config, translator):
+    if not handle_post_verification_onboarding(browser_tab, config, translator, email=email):
         return False
     return True
 
@@ -1267,7 +1329,12 @@ def handle_verification_code(browser_tab, email_tab, controller, config, transla
                         if translator:
                             print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
                         time.sleep(get_random_wait_time(config, 'verification_retry_wait'))
-                        if run_onboarding_and_go_to_settings(browser_tab, config, translator):
+                        if run_onboarding_and_go_to_settings(
+                            browser_tab,
+                            config,
+                            translator,
+                            getattr(controller, "email_address", "") or "",
+                        ):
                             return True, browser_tab
                         return False, None
                     if turnstile_attempt < 2:
@@ -1303,7 +1370,12 @@ def handle_verification_code(browser_tab, email_tab, controller, config, transla
                         if translator:
                             print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
                         time.sleep(get_random_wait_time(config, 'verification_retry_wait'))
-                        if run_onboarding_and_go_to_settings(browser_tab, config, translator):
+                        if run_onboarding_and_go_to_settings(
+                            browser_tab,
+                            config,
+                            translator,
+                            getattr(controller, "email_address", "") or "",
+                        ):
                             return True, browser_tab
                         return False, None
                         
@@ -1361,7 +1433,12 @@ def handle_verification_code(browser_tab, email_tab, controller, config, transla
                     if translator:
                         print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
                     time.sleep(get_random_wait_time(config, 'verification_retry_wait'))
-                    if run_onboarding_and_go_to_settings(browser_tab, config, translator):
+                    if run_onboarding_and_go_to_settings(
+                        browser_tab,
+                        config,
+                        translator,
+                        getattr(controller, "email_address", "") or "",
+                    ):
                         return True, browser_tab
                     return False, None
                     

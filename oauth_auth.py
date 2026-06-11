@@ -28,13 +28,14 @@ EMOJI = {
 }
 
 class OAuthHandler:
-    def __init__(self, translator=None, auth_type=None):
+    def __init__(self, translator=None, auth_type=None, preset_chrome_profile=None):
         self.translator = translator
         self.config = get_config(translator)
         self.auth_type = auth_type
         os.environ['BROWSER_HEADLESS'] = 'False'
         self.browser = None
         self.selected_profile = None
+        self.preset_chrome_profile = (preset_chrome_profile or "").strip() or None
         
     def _get_available_profiles(self, user_data_dir):
         """Get list of available Chrome profiles with their names"""
@@ -67,6 +68,22 @@ class OAuthHandler:
     def _select_profile(self):
         """Allow user to select a browser profile to use"""
         try:
+            if self.preset_chrome_profile:
+                user_data_dir = self._get_user_data_directory()
+                prof_path = os.path.join(user_data_dir, self.preset_chrome_profile)
+                if os.path.isdir(prof_path):
+                    self.selected_profile = self.preset_chrome_profile
+                    if self.translator:
+                        print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('oauth.profile_selected', profile=self.selected_profile)}{Style.RESET_ALL}")
+                    else:
+                        print(f"{Fore.GREEN}{EMOJI['SUCCESS']} Selected profile: {self.selected_profile}{Style.RESET_ALL}")
+                    return True
+                if self.translator:
+                    print(f"{Fore.YELLOW}{EMOJI['WARNING']} {self.translator.get('oauth.preset_profile_missing', profile=self.preset_chrome_profile)}{Style.RESET_ALL}")
+                else:
+                    print(f"{Fore.YELLOW}{EMOJI['WARNING']} Preset profile folder not found: {self.preset_chrome_profile}{Style.RESET_ALL}")
+                self.preset_chrome_profile = None
+
             # 从配置中获取浏览器类型
             config = get_config(self.translator)
             browser_type = config.get('Browser', 'default_browser', fallback='chrome')
@@ -218,7 +235,11 @@ class OAuthHandler:
             
             # Verify browser launched successfully
             if not self.browser:
-                raise Exception(f"{self.translator.get('oauth.browser_failed_to_start', error=str(e)) if self.translator else 'Failed to initialize browser instance'}")
+                raise Exception(
+                    self.translator.get("oauth.browser_failed_to_start", error="unknown")
+                    if self.translator
+                    else "Failed to initialize browser instance"
+                )
             
             print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('oauth.browser_setup_completed') if self.translator else 'Browser setup completed successfully'}{Style.RESET_ALL}")
             return True
@@ -1037,14 +1058,15 @@ class OAuthHandler:
             print(f"{Fore.RED}{EMOJI['ERROR']} {error_message}{Style.RESET_ALL}")
             return False
 
-def main(auth_type, translator=None):
+def main(auth_type, translator=None, preset_chrome_profile=None):
     """Main function to handle OAuth authentication
     
     Args:
         auth_type (str): Type of authentication ('google' or 'github')
         translator: Translator instance for internationalization
+        preset_chrome_profile: If set (e.g. ``Default``, ``Profile 1``), skip interactive profile pick when the folder exists.
     """
-    handler = OAuthHandler(translator, auth_type)
+    handler = OAuthHandler(translator, auth_type, preset_chrome_profile=preset_chrome_profile)
     
     if auth_type.lower() == 'google':
         print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('oauth.google_start') if translator else 'Google start'}{Style.RESET_ALL}")
@@ -1058,12 +1080,14 @@ def main(auth_type, translator=None):
         
     if success and auth_info:
         # Update Cursor authentication
-        auth_manager = CursorAuth(translator)
-        if auth_manager.update_auth(
+        from cursor_auth import apply_cursor_session
+
+        if apply_cursor_session(
+            translator=translator,
             email=auth_info["email"],
             access_token=auth_info["token"],
             refresh_token=auth_info["token"],
-            auth_type=auth_type
+            auth_type=auth_type,
         ):
             print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {translator.get('oauth.auth_update_success') if translator else 'Auth update success'}{Style.RESET_ALL}")
             # Close the browser after successful authentication

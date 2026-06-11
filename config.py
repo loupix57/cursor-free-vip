@@ -104,7 +104,27 @@ def setup_config(translator=None):
             },
             'Token': {
                 'refresh_server': 'https://token.cursorpro.com.cn',
-                'enable_refresh': True
+                # Désactivé par défaut : le serveur tiers renvoie souvent 5xx ; l’app utilise alors le jeton du cookie.
+                'enable_refresh': False
+            },
+            'Auth': {
+                # Ne pas reset l’ID machine après login : sinon l’API Cursor renvoie « log out and back in ».
+                'reset_machine_id_on_session': 'false',
+                # false : après inscription le refresh OAuth renvoie souvent shouldLogout — on valide via l’API Bearer à la place.
+                'oauth_refresh_on_save': 'false',
+            },
+            'Account': {
+                # Âge minimum pour « Réutiliser un compte existant » (menu inscription 4).
+                'reuse_min_days': '31',
+            },
+            'Chrome': {
+                # Profil Chrome public utilisé pour logout/login Cursor web (flux 1→2, 1→4).
+                'preferred_profile_email': 'loic5488@gmail.com',
+                # Vide = détection auto via account_info Chrome ; « Default » pour loic5488@gmail.com sur cette machine.
+                'profile_directory': '',
+                'debug_port': '9222',
+                # Toujours fermer Chrome puis relancer le bon profil (évite session sur Default).
+                'force_profile_relaunch': 'true',
             },
             'Language': {
                 'current_language': '',  # Set by local system detection if empty
@@ -282,10 +302,10 @@ def setup_config(translator=None):
         }
         # Menu options 16–17 — mode 2 (DrissionPage + agent login) : taille et position de la fenêtre Chromium
         default_config['AgentCliLogin'] = {
-            'window_width': '680',
-            'window_height': '480',
-            'window_x': '100',
-            'window_y': '72',
+            'window_width': '1040',
+            'window_height': '780',
+            'window_x': '64',
+            'window_y': '40',
         }
 
         # Read existing configuration and merge

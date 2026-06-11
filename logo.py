@@ -83,7 +83,7 @@ muhammedfurkan plamkatawe Lucaszmv
 """
 OTHER_INFO_TEXT = f"""{Fore.YELLOW}
 Github: https://github.com/yeongpin/cursor-free-vip{Fore.RED}
-Press 4 to change language | 按下 4 键切换语言{Style.RESET_ALL}"""
+Language: main menu → 5 Configuration → 1 | 主菜单 5 配置 → 1 切换语言{Style.RESET_ALL}"""
 
 # center display LOGO and DESCRIPTION
 CURSOR_LOGO = center_multiline_text(LOGO_TEXT, handle_chinese=False)

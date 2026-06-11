@@ -162,11 +162,12 @@ def main(translator=None, wait_for_enter: bool = True):
     print(f"{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
 
     reg = CursorDisposableRegistration(translator)
-    reg.start()
+    ok = reg.start()
 
     print(f"\n{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
     if wait_for_enter:
         input(f"{EMOJI['INFO']} {translator.get('register.press_enter')}...")
+    return bool(ok)
 
 
 def test_mail_api(translator=None):

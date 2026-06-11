@@ -13,22 +13,43 @@ EMOJI = {
 
 class AccountManager:
     _GOOGLE_EMAIL_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
+    _BLOCK_SEP = "=" * 50
 
     def __init__(self, translator=None, accounts_file=None):
         self.translator = translator
         self.accounts_file = accounts_file or "cursor_accounts.txt"
         self.domain_file = 'cursor_domain.txt'
     
-    def save_account_info(self, email, password, token, total_usage):
-        """Save account information to file"""
+    def save_account_info(self, email, password, token, subscription, usage_info=None):
+        """Enregistre le compte dans cursor_accounts.txt (abonnement via API + usage/limites via API)."""
         try:
+            sub = (subscription or "").strip() or "Unknown"
             with open(self.accounts_file, 'a', encoding='utf-8') as f:
                 f.write(f"\n{'='*50}\n")
                 f.write(f"Created At: {datetime.now().isoformat(timespec='seconds')}\n")
                 f.write(f"Email: {email}\n")
                 f.write(f"Password: {password}\n")
                 f.write(f"Token: {token}\n")
-                f.write(f"Usage Limit: {total_usage}\n")
+                f.write(f"Subscription: {sub}\n")
+                try:
+                    ui = usage_info or {}
+                    pu = ui.get("premium_usage")
+                    ml = ui.get("max_premium_usage")
+                    bu = ui.get("basic_usage")
+                    bl = ui.get("max_basic_usage")
+                    reached = ui.get("premium_limit_reached")
+                    if pu is not None:
+                        f.write(f"Premium Usage: {pu}\n")
+                    if ml is not None:
+                        f.write(f"Premium Limit: {ml}\n")
+                    if bu is not None:
+                        f.write(f"Basic Usage: {bu}\n")
+                    if bl is not None:
+                        f.write(f"Basic Limit: {bl}\n")
+                    if reached is not None:
+                        f.write(f"Premium Limit Reached: {str(bool(reached))}\n")
+                except Exception:
+                    pass
                 f.write(f"{'='*50}\n")
                 
             print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {self.translator.get('register.account_info_saved') if self.translator else 'Account information saved'}...{Style.RESET_ALL}")
@@ -144,12 +165,24 @@ class AccountManager:
                 except ValueError:
                     created_at = None
 
+            sub = (entry.get('subscription') or '').strip()
+            if not sub:
+                sub = (entry.get('usage limit') or '').strip()
+            usage_info = {
+                "premium_usage": entry.get("premium usage"),
+                "max_premium_usage": entry.get("premium limit"),
+                "basic_usage": entry.get("basic usage"),
+                "max_basic_usage": entry.get("basic limit"),
+                "premium_limit_reached": entry.get("premium limit reached"),
+            }
             accounts.append(
                 {
                     'email': email,
                     'password': entry.get('password', ''),
                     'token': token,
-                    'usage_limit': entry.get('usage limit', ''),
+                    'subscription': sub,
+                    'usage_limit': (entry.get('usage limit') or '').strip(),
+                    'usage_info': usage_info,
                     'created_at': created_at,
                 }
             )
@@ -178,7 +211,7 @@ class AccountManager:
                     counts[domain] += 1
         return dict(sorted(counts.items(), key=lambda x: (-x[1], x[0].lower())))
 
-    def get_reusable_accounts(self, min_days=30):
+    def get_reusable_accounts(self, min_days=31):
         """Get saved accounts that are at least min_days old."""
         now = datetime.now()
         reusable = []
@@ -192,7 +225,222 @@ class AccountManager:
             if age_days is not None and age_days >= min_days:
                 reusable.append(account_copy)
         return reusable
-    
+
+    def _split_account_block_bodies(self, content: str) -> list:
+        """Découpe cursor_accounts.txt en corps de blocs (sans les lignes ======)."""
+        bodies = []
+        for part in content.split(self._BLOCK_SEP):
+            body = part.strip("\n\r")
+            if body:
+                bodies.append(body)
+        return bodies
+
+    def _serialize_account_block_bodies(self, bodies: list) -> str:
+        """Même format que save_account_info : retours ligne avant/après chaque séparateur."""
+        if not bodies:
+            return ""
+        chunks = []
+        for body in bodies:
+            chunks.append(f"\n{self._BLOCK_SEP}\n{body}\n")
+        return "".join(chunks) + f"{self._BLOCK_SEP}\n"
+
+    def _usage_field_lines(self, usage_info: dict) -> list:
+        ui = usage_info or {}
+        lines = []
+        mapping = (
+            ("Premium Usage", "premium_usage"),
+            ("Premium Limit", "max_premium_usage"),
+            ("Basic Usage", "basic_usage"),
+            ("Basic Limit", "max_basic_usage"),
+            ("Premium Limit Reached", "premium_limit_reached"),
+        )
+        for label, key in mapping:
+            val = ui.get(key)
+            if val is not None:
+                if key == "premium_limit_reached":
+                    val = str(bool(val))
+                lines.append(f"{label}: {val}")
+        return lines
+
+    def update_account_session_info(
+        self,
+        email: str,
+        token: str,
+        subscription: str = None,
+        usage_info: dict = None,
+    ) -> bool:
+        """Met à jour Token / Subscription / quotas d’un compte existant."""
+        target = (email or "").strip().lower()
+        new_token = (token or "").strip()
+        if not target or not new_token or not os.path.exists(self.accounts_file):
+            return False
+
+        try:
+            with open(self.accounts_file, "r", encoding="utf-8") as f:
+                content = f.read()
+        except OSError:
+            return False
+
+        bodies = self._split_account_block_bodies(content)
+        updated = False
+        new_bodies = []
+        usage_keys = {
+            "premium usage",
+            "premium limit",
+            "basic usage",
+            "basic limit",
+            "premium limit reached",
+        }
+
+        for body in bodies:
+            block_email = None
+            for line in body.splitlines():
+                if line.strip().lower().startswith("email:"):
+                    block_email = line.split(":", 1)[1].strip().lower()
+                    break
+
+            if block_email == target:
+                updated = True
+                out_lines = []
+                has_subscription = False
+                for line in body.splitlines():
+                    low = line.strip().lower()
+                    if low.startswith("token:"):
+                        out_lines.append(f"Token: {new_token}")
+                    elif low.startswith("subscription:") and subscription:
+                        out_lines.append(f"Subscription: {(subscription or '').strip() or 'Unknown'}")
+                        has_subscription = True
+                    elif low.split(":", 1)[0].strip().lower() in usage_keys and usage_info:
+                        continue
+                    else:
+                        out_lines.append(line)
+                if subscription and not has_subscription:
+                    out_lines.append(f"Subscription: {(subscription or '').strip() or 'Unknown'}")
+                if usage_info:
+                    out_lines.extend(self._usage_field_lines(usage_info))
+                body = "\n".join(out_lines)
+
+            new_bodies.append(body)
+
+        if not updated:
+            return False
+
+        try:
+            with open(self.accounts_file, "w", encoding="utf-8") as f:
+                f.write(self._serialize_account_block_bodies(new_bodies))
+            return True
+        except OSError:
+            return False
+
+    def update_account_token(self, email: str, token: str) -> bool:
+        """Met à jour la ligne Token: pour un compte dans cursor_accounts.txt."""
+        target = (email or "").strip().lower()
+        new_token = (token or "").strip()
+        if not target or not new_token or not os.path.exists(self.accounts_file):
+            return False
+
+        try:
+            with open(self.accounts_file, "r", encoding="utf-8") as f:
+                content = f.read()
+        except OSError:
+            return False
+
+        bodies = self._split_account_block_bodies(content)
+        updated = False
+        new_bodies = []
+
+        for body in bodies:
+            block_email = None
+            for line in body.splitlines():
+                if line.strip().lower().startswith("email:"):
+                    block_email = line.split(":", 1)[1].strip().lower()
+                    break
+
+            if block_email == target:
+                updated = True
+                out_lines = []
+                for line in body.splitlines():
+                    if line.strip().lower().startswith("token:"):
+                        out_lines.append(f"Token: {new_token}")
+                    else:
+                        out_lines.append(line)
+                body = "\n".join(out_lines)
+
+            new_bodies.append(body)
+
+        if not updated:
+            return False
+
+        try:
+            with open(self.accounts_file, "w", encoding="utf-8") as f:
+                f.write(self._serialize_account_block_bodies(new_bodies))
+            return True
+        except OSError:
+            return False
+
+    def touch_account_created_at(self, email: str, reused_at=None) -> bool:
+        """
+        Remet Created At à aujourd’hui pour le compte réutilisé (évite de le reproposer trop tôt).
+        Ajoute ou met à jour Last Reused At.
+        """
+        target = (email or "").strip().lower()
+        if not target or not os.path.exists(self.accounts_file):
+            return False
+
+        when = reused_at or datetime.now()
+        created_stamp = when.isoformat(timespec="seconds")
+        reused_stamp = created_stamp
+
+        try:
+            with open(self.accounts_file, "r", encoding="utf-8") as f:
+                content = f.read()
+        except OSError:
+            return False
+
+        bodies = self._split_account_block_bodies(content)
+        updated = False
+        new_bodies = []
+
+        for body in bodies:
+            block_email = None
+            for line in body.splitlines():
+                if line.strip().lower().startswith("email:"):
+                    block_email = line.split(":", 1)[1].strip().lower()
+                    break
+
+            if block_email == target:
+                updated = True
+                out_lines = []
+                has_created = False
+                has_reused = False
+                for line in body.splitlines():
+                    low = line.strip().lower()
+                    if low.startswith("created at:"):
+                        out_lines.append(f"Created At: {created_stamp}")
+                        has_created = True
+                    elif low.startswith("last reused at:"):
+                        out_lines.append(f"Last Reused At: {reused_stamp}")
+                        has_reused = True
+                    else:
+                        out_lines.append(line)
+                if not has_created:
+                    out_lines.insert(0, f"Created At: {created_stamp}")
+                if not has_reused:
+                    out_lines.append(f"Last Reused At: {reused_stamp}")
+                body = "\n".join(out_lines)
+
+            new_bodies.append(body)
+
+        if not updated:
+            return False
+
+        try:
+            with open(self.accounts_file, "w", encoding="utf-8") as f:
+                f.write(self._serialize_account_block_bodies(new_bodies))
+            return True
+        except OSError:
+            return False
+
     def suggest_email(self, first_name, last_name):
         """Generate a suggested email based on first and last name with the last used domain"""
         try:
