@@ -190,11 +190,27 @@ def get_random_wait_time(config, timing_type='page_load_wait'):
     except:
         return random.uniform(0.1, 0.8)  # Return default value when error
 
-def setup_driver(translator=None):
-    """Setup browser driver"""
+def setup_driver(translator=None, use_chrome_public_profile: bool = False):
+    """Setup browser driver (profil Chrome utilisateur ou navigateur temporaire incognito)."""
     global _chrome_process_ids
     
     try:
+        if use_chrome_public_profile:
+            from agent_cli_helper import open_chrome_public_profile_page
+
+            hint = (
+                translator.get("register.using_chrome_public_profile")
+                if translator
+                else "Inscription dans votre profil Chrome (session loic5488@gmail.com)…"
+            )
+            print(f"{Fore.CYAN}ℹ️ {hint}{Style.RESET_ALL}")
+            config, page = open_chrome_public_profile_page(translator)
+            if translator:
+                print(f"{Fore.CYAN}🚀 {translator.get('register.browser_started')}{Style.RESET_ALL}")
+            else:
+                print("Browser opened on your Chrome profile.")
+            return config, page
+
         # Get config
         config = get_config(translator)
         
@@ -1504,7 +1520,7 @@ def handle_sign_in(browser_tab, email, password, translator=None):
         print(f"{Fore.RED}Login process error: {str(e)}{Style.RESET_ALL}")
         return False
 
-def main(email=None, password=None, first_name=None, last_name=None, email_tab=None, controller=None, translator=None):
+def main(email=None, password=None, first_name=None, last_name=None, email_tab=None, controller=None, translator=None, use_chrome_public_profile=False):
     """Main function, can receive account information, email tab, and translator"""
     global _translator
     global _chrome_process_ids
@@ -1517,8 +1533,8 @@ def main(email=None, password=None, first_name=None, last_name=None, email_tab=N
     page = None
     success = False
     try:
-        config, page = setup_driver(translator)
-        if translator:
+        config, page = setup_driver(translator, use_chrome_public_profile=use_chrome_public_profile)
+        if not use_chrome_public_profile and translator:
             print(f"{Fore.CYAN}🚀 {translator.get('register.browser_started')}{Style.RESET_ALL}")
         
         # Visit registration page
@@ -1583,10 +1599,15 @@ def main(email=None, password=None, first_name=None, last_name=None, email_tab=N
     finally:
         if page and not success:  # Only clean up when failed
             try:
-                page.quit()
-            except:
+                if use_chrome_public_profile:
+                    from agent_cli_helper import sync_chrome_public_session_from_page
+                    sync_chrome_public_session_from_page(page, translator)
+                else:
+                    page.quit()
+            except Exception:
                 pass
-            cleanup_chrome_processes(translator)
+            if not use_chrome_public_profile:
+                cleanup_chrome_processes(translator)
 
 if __name__ == "__main__":
     main()  # Run without parameters, use randomly generated information 

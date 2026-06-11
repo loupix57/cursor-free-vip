@@ -479,7 +479,7 @@ def _chrome_profile_session_rel_paths() -> List[str]:
     ]
 
 
-def _copy_path_if_exists(src: str, dst: str) -> None:
+def _copy_path_if_exists(src: str, dst: str, retries: int = 4) -> None:
     if not os.path.exists(src):
         return
     parent = os.path.dirname(dst)
@@ -489,8 +489,15 @@ def _copy_path_if_exists(src: str, dst: str) -> None:
         if os.path.isdir(dst):
             shutil.rmtree(dst, ignore_errors=True)
         shutil.copytree(src, dst, dirs_exist_ok=True)
-    else:
-        shutil.copy2(src, dst)
+        return
+    for attempt in range(retries):
+        try:
+            shutil.copy2(src, dst)
+            return
+        except PermissionError:
+            if attempt + 1 >= retries:
+                raise
+            time.sleep(0.55 * (attempt + 1))
 
 
 def _sync_chrome_profile_session(src_ud: str, dst_ud: str, profile_dir: str) -> None:
@@ -546,7 +553,76 @@ def _sync_chrome_cdp_back_to_real(
     _sync_chrome_profile_session(cdp_ud, real_ud, profile_dir)
 
 
-def _kill_chrome_processes(translator=None) -> None:
+def _finish_chrome_public_session(
+    page,
+    real_ud: str,
+    cdp_ud: str,
+    profile_dir: str,
+    translator=None,
+) -> None:
+    """Ferme Chrome CDP puis resynchronise le miroir vers le profil réel."""
+    if page:
+        try:
+            page.quit()
+        except Exception:
+            pass
+    time.sleep(0.6)
+    _kill_chrome_processes(translator)
+    time.sleep(0.9)
+    if real_ud and cdp_ud and profile_dir:
+        _sync_chrome_cdp_back_to_real(real_ud, cdp_ud, profile_dir, translator)
+
+
+def _is_debug_port_open(port: int, host: str = "127.0.0.1") -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=0.45):
+            return True
+    except OSError:
+        return False
+
+
+def _wait_for_debug_port(port: int, timeout: float = 35.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _is_debug_port_open(port):
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def _clear_chrome_singleton_locks(user_data_dir: str) -> None:
+    if not user_data_dir:
+        return
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        path = os.path.join(user_data_dir, name)
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+
+def _chrome_process_count() -> int:
+    if os.name != "nt":
+        return 0
+    try:
+        r = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "(Get-Process chrome -ErrorAction SilentlyContinue | Measure-Object).Count",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        return int((r.stdout or "0").strip() or "0")
+    except Exception:
+        return -1
+
+
+def _kill_chrome_processes(translator=None, wait_gone: float = 4.0) -> None:
     msg = (
         translator.get("agent_cli.chrome_kill_processes")
         if translator
@@ -568,7 +644,85 @@ def _kill_chrome_processes(translator=None) -> None:
             )
         except Exception:
             pass
-    time.sleep(0.8)
+    deadline = time.time() + wait_gone
+    while time.time() < deadline:
+        count = _chrome_process_count()
+        if count == 0:
+            break
+        time.sleep(0.35)
+    time.sleep(0.6)
+
+
+def _verify_chrome_mirror_account_email(
+    user_data_dir: str, profile_dir: str, expected_email: str, translator=None
+) -> bool:
+    """Vérifie que le miroir CDP contient bien le compte Google Chrome attendu."""
+    try:
+        from chrome_gmail_scan import _read_profile_account_email
+
+        actual = _read_profile_account_email(user_data_dir, profile_dir) or ""
+        target = (expected_email or "").strip().lower()
+        ok = actual == target
+        if ok:
+            msg = (
+                translator.get("agent_cli.chrome_mirror_account_ok", email=actual, profile=profile_dir)
+                if translator
+                else f"Chrome mirror account verified: {actual} ({profile_dir})"
+            )
+            print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {msg}{Style.RESET_ALL}")
+        else:
+            msg = (
+                translator.get(
+                    "agent_cli.chrome_mirror_account_mismatch",
+                    expected=target,
+                    actual=actual or "?",
+                    profile=profile_dir,
+                )
+                if translator
+                else (
+                    f"Chrome mirror account mismatch — expected {target}, "
+                    f"got {actual or '?'} in {profile_dir}"
+                )
+            )
+            print(f"{Fore.YELLOW}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
+        return ok
+    except Exception:
+        return False
+
+
+def _open_chromium_page_cdp(co, debug_port: int, cdp_user_data: str, translator=None, max_attempts: int = 3):
+    """Lance ChromiumPage avec retries (port CDP parfois lent ou conflit Chrome)."""
+    from DrissionPage import ChromiumPage
+
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            if attempt > 1:
+                retry_msg = (
+                    translator.get("agent_cli.chrome_cdp_retry", attempt=attempt, max_attempts=max_attempts)
+                    if translator
+                    else f"Chrome CDP connection retry {attempt}/{max_attempts}…"
+                )
+                print(f"{Fore.YELLOW}{EMOJI['INFO']} {retry_msg}{Style.RESET_ALL}")
+                _kill_chrome_processes(translator)
+                _clear_chrome_singleton_locks(cdp_user_data)
+                time.sleep(1.0)
+            page = ChromiumPage(co)
+            if _wait_for_debug_port(debug_port, timeout=30.0):
+                return page
+            try:
+                page.quit()
+            except Exception:
+                pass
+            last_err = RuntimeError(f"Debug port {debug_port} not ready after launch")
+        except Exception as e:
+            last_err = e
+            try:
+                _kill_chrome_processes(translator)
+            except Exception:
+                pass
+        time.sleep(0.8)
+    raise last_err or RuntimeError(f"Could not connect to Chrome on port {debug_port}")
 
 
 def _resolve_chrome_profile_dir(translator=None, email: str = None) -> str:
@@ -884,6 +1038,10 @@ def _chromium_page_chrome_public_current_profile(translator) -> Tuple[object, ob
     _kill_chrome_processes(translator)
     time.sleep(1.2)
     _ensure_chrome_cdp_mirror(real_user_data, cdp_user_data, chosen_profile_dir, translator)
+    _verify_chrome_mirror_account_email(
+        cdp_user_data, chosen_profile_dir, preferred_email, translator
+    )
+    _clear_chrome_singleton_locks(cdp_user_data)
 
     relaunch_msg = (
         translator.get("agent_cli.chrome_debug_relaunch_profile", profile=chosen_profile_dir, port=debug_port)
@@ -915,8 +1073,8 @@ def _chromium_page_chrome_public_current_profile(translator) -> Tuple[object, ob
         except Exception:
             pass
 
-    page = ChromiumPage(co)
-    time.sleep(1.0)
+    page = _open_chromium_page_cdp(co, debug_port, cdp_user_data, translator)
+    time.sleep(0.6)
 
     if not _verify_chrome_profile_active(page, cdp_user_data, chosen_profile_dir, translator):
         raise RuntimeError(
@@ -924,6 +1082,32 @@ def _chromium_page_chrome_public_current_profile(translator) -> Tuple[object, ob
         )
 
     return page, config, chosen_profile_dir, real_user_data, cdp_user_data
+
+
+def open_chrome_public_profile_page(translator) -> Tuple[object, object]:
+    """
+    Ouvre DrissionPage sur le profil Chrome de l'utilisateur (miroir CDP synchronisé).
+    Attache ``page._cursor_chrome_session`` pour resync vers Chrome réel à la fermeture.
+    """
+    page, config, profile_dir, real_ud, cdp_ud = _chromium_page_chrome_public_current_profile(translator)
+    page._cursor_chrome_session = {
+        "real_ud": real_ud,
+        "cdp_ud": cdp_ud,
+        "profile_dir": profile_dir,
+    }
+    return page, config
+
+
+def sync_chrome_public_session_from_page(page, translator=None) -> None:
+    """Recopie cookies/session du miroir CDP vers le Chrome réel (fermer page avant)."""
+    meta = getattr(page, "_cursor_chrome_session", None) or {}
+    _finish_chrome_public_session(
+        page,
+        meta.get("real_ud") or "",
+        meta.get("cdp_ud") or "",
+        meta.get("profile_dir") or "",
+        translator,
+    )
 
 
 def _safe_click_maybe_later(page, translator=None) -> bool:
@@ -2042,14 +2226,7 @@ def chrome_profile_logout_cursor_session(translator=None) -> bool:
         print(f"{Fore.RED}{EMOJI['ERROR']} {err}{Style.RESET_ALL}")
         return False
     finally:
-        if page:
-            try:
-                page.quit()
-            except Exception:
-                pass
-            time.sleep(0.5)
-        if real_ud and cdp_ud and profile_dir:
-            _sync_chrome_cdp_back_to_real(real_ud, cdp_ud, profile_dir, translator)
+        _finish_chrome_public_session(page, real_ud, cdp_ud, profile_dir, translator)
 
 
 def _automate_cursor_chrome_public_logout_login(
@@ -2108,14 +2285,7 @@ def _automate_cursor_chrome_public_logout_login(
         print(f"{Fore.RED}{EMOJI['ERROR']} {err}{Style.RESET_ALL}")
         return False
     finally:
-        if page:
-            try:
-                page.quit()
-            except Exception:
-                pass
-            time.sleep(0.5)
-        if real_ud and cdp_ud and profile_dir:
-            _sync_chrome_cdp_back_to_real(real_ud, cdp_ud, profile_dir, translator)
+        _finish_chrome_public_session(page, real_ud, cdp_ud, profile_dir, translator)
 
 
 def run_logout_then_login_latest_saved(translator=None) -> None:

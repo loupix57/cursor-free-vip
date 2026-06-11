@@ -232,7 +232,17 @@ class CursorRegistration:
                     else "Déconnexion de la session Cursor web dans le profil Chrome avant inscription…"
                 )
                 print(f"{Fore.CYAN}{EMOJI['INFO']} {hint}{Style.RESET_ALL}")
-                chrome_profile_logout_cursor_session(self.translator)
+                for attempt in range(2):
+                    if chrome_profile_logout_cursor_session(self.translator):
+                        break
+                    if attempt == 0:
+                        warn = (
+                            self.translator.get("register.external_mail_chrome_logout_retry")
+                            if self.translator
+                            else "Chrome logout failed — nouvelle tentative…"
+                        )
+                        print(f"{Fore.YELLOW}{EMOJI['INFO']} {warn}{Style.RESET_ALL}")
+                        time.sleep(2.0)
 
             print(f"{Fore.CYAN}{EMOJI['START']} {self.translator.get('register.register_start')}...{Style.RESET_ALL}")
             
@@ -272,7 +282,8 @@ class CursorRegistration:
                 last_name=self.last_name,
                 email_tab=email_tab,  # Pass email_tab if tempmail_plus is enabled
                 controller=self,  # Pass self instead of self.controller
-                translator=self.translator
+                translator=self.translator,
+                use_chrome_public_profile=True,
             )
             
             if result:
@@ -280,26 +291,23 @@ class CursorRegistration:
                 self.signup_tab = browser_tab  # Save browser instance
                 success = self._get_account_info()
 
-                if success and self.external_personal_mail:
-                    from agent_cli_helper import automate_cursor_web_email_password_login
-
-                    sync_msg = (
-                        self.translator.get("register.external_mail_chrome_sync")
-                        if self.translator
-                        else "Synchronisation : logout/login Chrome avec le nouveau compte…"
-                    )
-                    print(f"{Fore.CYAN}{EMOJI['INFO']} {sync_msg}{Style.RESET_ALL}")
-                    automate_cursor_web_email_password_login(
-                        self.email_address,
-                        self.password,
-                        self.translator,
-                        update_existing=True,
-                        use_chrome_public_profile=True,
-                    )
+                # Session déjà dans le profil Chrome (inscription faite dessus) → sync uniquement.
+                if success and browser_tab:
+                    try:
+                        from agent_cli_helper import sync_chrome_public_session_from_page
+                        sync_chrome_public_session_from_page(browser_tab, self.translator)
+                        browser_tab = None
+                    except Exception:
+                        pass
                 
-                # Une fois l'email validé et l'inscription réussie : supprimer le compte sur le nœud distant (--remove-home)
-                config = get_config(self.translator)
-                if success and config and config.has_section('RemoteNode') and config.get('RemoteNode', 'enabled', fallback='false').strip().lower() in ('true', '1', 'yes'):
+                # Suppression nœud distant uniquement si le compte a été créé sur le nœud (mail jetable).
+                if (
+                    success
+                    and not self.external_personal_mail
+                    and config
+                    and config.has_section('RemoteNode')
+                    and config.get('RemoteNode', 'enabled', fallback='false').strip().lower() in ('true', '1', 'yes')
+                ):
                     ssh_host = config.get('RemoteNode', 'host', fallback='').strip()
                     ssh_user = config.get('RemoteNode', 'user', fallback='pi').strip() or 'pi'
                     remove_home = config.get('RemoteNode', 'remove_home_on_delete', fallback='true').strip().lower() in ('true', '1', 'yes')

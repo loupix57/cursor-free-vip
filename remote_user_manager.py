@@ -401,6 +401,22 @@ def delete_remote_user(
         r = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             err = (r.stderr or r.stdout or "").strip()
+            err_lower = err.lower()
+            if "does not exist" in err_lower or "n'existe pas" in err_lower:
+                log.info("delete_remote_user: %s already absent on %s", username, ssh_host)
+                if translator:
+                    print(
+                        f"{Fore.CYAN}{EMOJI['INFO']} "
+                        f"{translator.get('remote_user.delete_not_found', username=username, host=ssh_host)}"
+                        f"{Style.RESET_ALL}"
+                    )
+                else:
+                    print(
+                        f"{Fore.CYAN}{EMOJI['INFO']} "
+                        f"Compte {username} déjà absent sur {ssh_host}."
+                        f"{Style.RESET_ALL}"
+                    )
+                return True
             log.warning("delete_remote_user failed: %s", err)
             if translator:
                 print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('remote_user.delete_failed', username=username, error=err)}{Style.RESET_ALL}")
