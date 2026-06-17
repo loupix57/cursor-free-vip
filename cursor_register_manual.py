@@ -223,27 +223,6 @@ class CursorRegistration:
         """Register Cursor"""
         browser_tab = None
         try:
-            if self.external_personal_mail:
-                from agent_cli_helper import chrome_profile_logout_cursor_session
-
-                hint = (
-                    self.translator.get("register.external_mail_chrome_logout")
-                    if self.translator
-                    else "Déconnexion de la session Cursor web dans le profil Chrome avant inscription…"
-                )
-                print(f"{Fore.CYAN}{EMOJI['INFO']} {hint}{Style.RESET_ALL}")
-                for attempt in range(2):
-                    if chrome_profile_logout_cursor_session(self.translator):
-                        break
-                    if attempt == 0:
-                        warn = (
-                            self.translator.get("register.external_mail_chrome_logout_retry")
-                            if self.translator
-                            else "Chrome logout failed — nouvelle tentative…"
-                        )
-                        print(f"{Fore.YELLOW}{EMOJI['INFO']} {warn}{Style.RESET_ALL}")
-                        time.sleep(2.0)
-
             print(f"{Fore.CYAN}{EMOJI['START']} {self.translator.get('register.register_start')}...{Style.RESET_ALL}")
             
             # Check email source: TempMailPlus, LocalEmail (IMAP), or manual
@@ -283,7 +262,7 @@ class CursorRegistration:
                 email_tab=email_tab,  # Pass email_tab if tempmail_plus is enabled
                 controller=self,  # Pass self instead of self.controller
                 translator=self.translator,
-                use_chrome_public_profile=True,
+                use_chrome_public_profile=False,
             )
             
             if result:
@@ -291,14 +270,35 @@ class CursorRegistration:
                 self.signup_tab = browser_tab  # Save browser instance
                 success = self._get_account_info()
 
-                # Session déjà dans le profil Chrome (inscription faite dessus) → sync uniquement.
-                if success and browser_tab:
-                    try:
-                        from agent_cli_helper import sync_chrome_public_session_from_page
-                        sync_chrome_public_session_from_page(browser_tab, self.translator)
+                # 1→2 : inscription d'abord (navigateur temporaire), puis session Chrome.
+                if success and self.external_personal_mail:
+                    if browser_tab:
+                        try:
+                            browser_tab.quit()
+                        except Exception:
+                            pass
                         browser_tab = None
-                    except Exception:
-                        pass
+
+                    from agent_cli_helper import automate_cursor_web_email_password_login
+
+                    sync_msg = (
+                        self.translator.get("register.external_mail_chrome_sync")
+                        if self.translator
+                        else "Synchronisation profil Chrome : logout puis login avec le nouveau compte…"
+                    )
+                    print(f"{Fore.CYAN}{EMOJI['INFO']} {sync_msg}{Style.RESET_ALL}")
+                    if not automate_cursor_web_email_password_login(
+                        self.email_address,
+                        self.password,
+                        self.translator,
+                        update_existing=True,
+                        use_chrome_public_profile=True,
+                    ):
+                        print(
+                            f"{Fore.YELLOW}{EMOJI['INFO']} "
+                            f"{self.translator.get('register.external_mail_chrome_sync_failed') if self.translator else 'Chrome sync failed — account saved locally anyway.'}"
+                            f"{Style.RESET_ALL}"
+                        )
                 
                 # Suppression nœud distant uniquement si le compte a été créé sur le nœud (mail jetable).
                 if (

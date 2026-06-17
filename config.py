@@ -306,6 +306,10 @@ def setup_config(translator=None):
             'window_height': '780',
             'window_x': '64',
             'window_y': '40',
+            'google_window_width': '1280',
+            'google_window_height': '920',
+            'google_window_x': '40',
+            'google_window_y': '24',
         }
 
         # Read existing configuration and merge
@@ -329,6 +333,30 @@ def setup_config(translator=None):
                     config.write(f)
                 if translator:
                     print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {translator.get('config.config_updated') if translator else 'Config updated'}{Style.RESET_ALL}")
+            # Migrer l'ancienne fenêtre 680×480 vers les tailles actuelles.
+            if config.has_section("AgentCliLogin"):
+                try:
+                    w = config.getint("AgentCliLogin", "window_width", fallback=1040)
+                    h = config.getint("AgentCliLogin", "window_height", fallback=780)
+                    patched = False
+                    if w <= 720 and h <= 520:
+                        config.set("AgentCliLogin", "window_width", "1040")
+                        config.set("AgentCliLogin", "window_height", "780")
+                        patched = True
+                    for key, val in (
+                        ("google_window_width", "1280"),
+                        ("google_window_height", "920"),
+                        ("google_window_x", "40"),
+                        ("google_window_y", "24"),
+                    ):
+                        if not config.has_option("AgentCliLogin", key):
+                            config.set("AgentCliLogin", key, val)
+                            patched = True
+                    if patched:
+                        with open(config_file, 'w', encoding='utf-8') as f:
+                            config.write(f)
+                except (ValueError, TypeError):
+                    pass
         else:
             for section, options in default_config.items():
                 config.add_section(section)

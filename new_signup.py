@@ -329,6 +329,9 @@ def _try_click_human_verification_widgets(page, translator=None):
             'xpath://label[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "not a robot")]',
             'xpath://label[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "pas un robot")]',
             'xpath://label[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "verify you are human")]',
+            'xpath://label[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "vérifiez que vous êtes humain")]',
+            'xpath://label[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "verifiez que vous etes humain")]',
+            'xpath://*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "vérifiez que vous êtes humain")]',
             'xpath://label[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "confirm you")]',
             'xpath://*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "verify you are human")]//input[@type="checkbox"]',
             'xpath://input[@type="checkbox"][ancestor::*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "human")]]',
@@ -386,7 +389,7 @@ def _try_click_human_verification_widgets(page, translator=None):
                   for (const el of targets) {
                     const t = (el.innerText || el.textContent || '').trim().toLowerCase();
                     if (!t) continue;
-                    if (!(t.includes('human') || t.includes('humain') || t.includes('not a robot') || t.includes('verify'))) continue;
+                    if (!(t.includes('human') || t.includes('humain') || t.includes('not a robot') || t.includes('verify') || t.includes('vérifiez') || t.includes('verifiez'))) continue;
                     if (!isVisible(el)) continue;
                     el.click();
                     return true;
@@ -423,14 +426,150 @@ def _try_click_human_verification_widgets(page, translator=None):
     return False
 
 
-def handle_turnstile(page, config, translator=None):
+def _click_turnstile_aggressive(page, translator=None) -> bool:
+    """Clic Turnstile : iframe shadow DOM + coordonnées CDP sur la case."""
+    clicked = False
+    try:
+        rect = page.run_js(
+            """
+            (() => {
+              const host = document.querySelector('#cf-turnstile')
+                || document.querySelector('.cf-turnstile')
+                || document.querySelector('[class*="turnstile"]');
+              if (!host) return null;
+              const sr = host.shadowRoot;
+              const iframe = sr && sr.querySelector('iframe');
+              const el = iframe || host;
+              const r = el.getBoundingClientRect();
+              if (r.width < 8 || r.height < 8) return null;
+              return {
+                x: r.left,
+                y: r.top,
+                w: r.width,
+                h: r.height,
+                kind: iframe ? 'iframe' : 'host',
+              };
+            })();
+            """
+        )
+        if rect and float(rect.get("w") or 0) > 8:
+            offsets = (0.16, 0.22, 0.28) if rect.get("kind") == "iframe" else (0.18,)
+            for off in offsets:
+                cx = float(rect["x"]) + float(rect["w"]) * off
+                cy = float(rect["y"]) + float(rect["h"]) / 2.0
+                try:
+                    page.run_cdp("Input.dispatchMouseEvent", type="mouseMoved", x=cx, y=cy)
+                    page.run_cdp(
+                        "Input.dispatchMouseEvent",
+                        type="mousePressed",
+                        x=cx,
+                        y=cy,
+                        button="left",
+                        clickCount=1,
+                    )
+                    page.run_cdp(
+                        "Input.dispatchMouseEvent",
+                        type="mouseReleased",
+                        x=cx,
+                        y=cy,
+                        button="left",
+                        clickCount=1,
+                    )
+                    clicked = True
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    try:
+        host = page.ele("@id=cf-turnstile", timeout=0.25) or page.ele(
+            'xpath://*[contains(@class, "cf-turnstile") or contains(@class, "turnstile")]', timeout=0.2
+        )
+        if host:
+            try:
+                iframe = host.shadow_root.ele("tag:iframe", timeout=0.5)
+                try:
+                    body = iframe.ele("tag:body", timeout=0.45)
+                    for sel in ("tag:input", "tag:label", "tag:div"):
+                        try:
+                            node = body.sr(sel, timeout=0.35)
+                            if node:
+                                node.click()
+                                clicked = True
+                                break
+                        except Exception:
+                            continue
+                except Exception:
+                    iframe.click()
+                    clicked = True
+            except Exception:
+                try:
+                    host.click()
+                    clicked = True
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    if clicked and translator:
+        print(f"{Fore.CYAN}ℹ️ Clic Turnstile (iframe / CDP).{Style.RESET_ALL}")
+    return clicked
+
+
+def resolve_human_gate_fast(page, translator=None, max_attempts: int = 5) -> bool:
+    """Turnstile login rapide (sans handle_turnstile lourd)."""
+    if not _is_human_gate_screen(page):
+        return True
+    for attempt in range(1, max_attempts + 1):
+        if not _is_human_gate_screen(page):
+            return True
+        if attempt == 1:
+            print(f"{Fore.CYAN}ℹ️ Vérification humaine — clic Turnstile…{Style.RESET_ALL}")
+        _try_click_human_verification_widgets(page, translator)
+        _click_turnstile_aggressive(page, translator)
+        for _ in range(4):
+            if not _is_human_gate_screen(page):
+                if translator:
+                    print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
+                return True
+            time.sleep(0.1)
+    return not _is_human_gate_screen(page)
+
+
+def resolve_human_gate(page, config, translator=None, max_attempts: int = 12) -> bool:
+    """Boucle jusqu'à disparition réelle de l'écran « humain »."""
+    if not _is_human_gate_screen(page):
+        return True
+    for attempt in range(1, max_attempts + 1):
+        if not _is_human_gate_screen(page):
+            return True
+        if translator and attempt <= 2:
+            print(
+                f"{Fore.CYAN}ℹ️ Vérification humaine — clic Turnstile ({attempt}/{max_attempts})…{Style.RESET_ALL}"
+            )
+        _try_click_human_verification_widgets(page, translator)
+        _click_turnstile_aggressive(page, translator)
+        handle_turnstile(page, config, translator, quick=True, auth_gate=True)
+        for _ in range(8):
+            if not _is_human_gate_screen(page):
+                if translator:
+                    print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
+                return True
+            time.sleep(0.25)
+    return not _is_human_gate_screen(page)
+
+
+def handle_turnstile(page, config, translator=None, quick: bool = False, auth_gate: bool = False):
     """Handle Turnstile verification"""
     try:
-        log.info("Starting Turnstile verification")
-        if translator:
-            print(f"{Fore.CYAN}🔄 {translator.get('register.handling_turnstile')}{Style.RESET_ALL}")
-        else:
-            print("\nHandling Turnstile verification...")
+        auth_mode = auth_gate or _is_human_gate_screen(page)
+        verify_ok = lambda: check_verification_success(page, translator, auth_gate=auth_mode)
+        if not quick:
+            log.info("Starting Turnstile verification")
+            if translator:
+                print(f"{Fore.CYAN}🔄 {translator.get('register.handling_turnstile')}{Style.RESET_ALL}")
+            else:
+                print("\nHandling Turnstile verification...")
 
         # Sur la page d'inscription / auth : tenter tout de suite de cocher une case « humain » si elle est affichée
         try:
@@ -476,7 +615,7 @@ def handle_turnstile(page, config, translator=None):
             pass
 
         # Check first if verification is already successful (no need to retry)
-        if check_verification_success(page, translator):
+        if verify_ok():
             log.info("Turnstile verification already successful, skipping retry")
             if translator:
                 print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
@@ -485,16 +624,18 @@ def handle_turnstile(page, config, translator=None):
             return True
         
         # from config
-        turnstile_time = float(config.get('Turnstile', 'handle_turnstile_time', fallback='2'))
-        random_time_str = config.get('Turnstile', 'handle_turnstile_random_time', fallback='1-3')
-        
-        # Parse random time range
-        try:
-            min_time, max_time = map(float, random_time_str.split('-'))
-        except:
-            min_time, max_time = 1, 3  # Default value
-        
-        max_retries = 1  # Reduced from 2 to 1 to avoid unnecessary retries
+        if quick:
+            turnstile_time = 0.15
+            min_time, max_time = 0.05, 0.15
+            max_retries = 3 if auth_mode else 5
+        else:
+            turnstile_time = float(config.get('Turnstile', 'handle_turnstile_time', fallback='2'))
+            random_time_str = config.get('Turnstile', 'handle_turnstile_random_time', fallback='1-3')
+            try:
+                min_time, max_time = map(float, random_time_str.split('-'))
+            except Exception:
+                min_time, max_time = 1, 3
+            max_retries = 1
         retry_count = 0
 
         while retry_count < max_retries:
@@ -511,6 +652,7 @@ def handle_turnstile(page, config, translator=None):
                 page.run_js("try { turnstile.reset() } catch(e) { }")
                 time.sleep(turnstile_time)  # from config
                 _try_click_human_verification_widgets(page, translator)
+                _click_turnstile_aggressive(page, translator)
 
                 # Locate verification box element (dans un thread avec timeout 15s max pour éviter ~2 min d'attente)
                 challenge_check = None
@@ -528,7 +670,7 @@ def handle_turnstile(page, config, translator=None):
                         pass
                 th = threading.Thread(target=_find_turnstile, daemon=True)
                 th.start()
-                th.join(timeout=15)
+                th.join(timeout=2.5 if quick else 15)
                 if th.is_alive():
                     log.debug("Turnstile element lookup timed out after 15s")
 
@@ -544,7 +686,7 @@ def handle_turnstile(page, config, translator=None):
                     time.sleep(turnstile_time)  # from config
 
                     # check verification result
-                    if check_verification_success(page, translator):
+                    if verify_ok():
                         log.info("Turnstile verification successful after click")
                         if translator:
                             print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
@@ -553,7 +695,7 @@ def handle_turnstile(page, config, translator=None):
                         return True
                 else:
                     # No challenge box found, check if already verified
-                    if check_verification_success(page, translator):
+                    if verify_ok():
                         log.info("Turnstile verification successful (no challenge box)")
                         if translator:
                             print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
@@ -571,7 +713,7 @@ def handle_turnstile(page, config, translator=None):
                         print(f"Verification attempt failed: {e}")
 
             # Check if verification has been successful after attempt
-            if check_verification_success(page, translator):
+            if verify_ok():
                 log.info("Turnstile verification successful after attempt")
                 if translator:
                     print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
@@ -580,7 +722,7 @@ def handle_turnstile(page, config, translator=None):
                 return True
 
         # Final check before giving up
-        if check_verification_success(page, translator):
+        if verify_ok():
             log.info("Turnstile verification successful on final check")
             if translator:
                 print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
@@ -605,17 +747,19 @@ def handle_turnstile(page, config, translator=None):
 
 
 def _is_human_gate_screen(page) -> bool:
+    """Écran bloquant uniquement si le texte « humain » est affiché (pas un Turnstile caché dans le DOM)."""
     try:
         url = (page.url if hasattr(page, "url") else "") or ""
-        lu = url.lower()
-        if "authenticator.cursor.sh/sign-up/password" in lu:
-            if (
-                page.ele('xpath://*[contains(., "nous devons nous assurer que vous êtes humain")]', timeout=0.2)
-                or page.ele('xpath://*[contains(., "we need to verify you are human")]', timeout=0.2)
-                or page.ele('xpath://*[contains(., "verify you are human")]', timeout=0.2)
-            ):
-                return True
-        return False
+        if "authenticator.cursor" not in url.lower():
+            return False
+        return bool(
+            page.ele('xpath://*[contains(., "nous devons nous assurer que vous êtes humain")]', timeout=0.15)
+            or page.ele('xpath://*[contains(., "we need to verify you are human")]', timeout=0.15)
+            or page.ele('xpath://*[contains(., "verify you are human")]', timeout=0.15)
+            or page.ele('xpath://*[contains(., "assurer que vous êtes humain")]', timeout=0.15)
+            or page.ele('xpath://*[contains(., "vérifiez que vous êtes humain")]', timeout=0.15)
+            or page.ele('xpath://*[contains(., "Vérifiez que vous êtes humain")]', timeout=0.15)
+        )
     except Exception:
         return False
 
@@ -1259,9 +1403,19 @@ def run_onboarding_and_go_to_settings(browser_tab, config, translator=None, emai
     return True
 
 
-def check_verification_success(page, translator=None):
+def check_auth_human_gate_cleared(page) -> bool:
+    """Succès Turnstile login : l'écran « humain » a disparu (pas un simple champ password dans le DOM)."""
+    if _is_human_gate_success(page):
+        return True
+    return not _is_human_gate_screen(page)
+
+
+def check_verification_success(page, translator=None, auth_gate: bool = False):
     """Check if verification is successful"""
     try:
+        if auth_gate:
+            return check_auth_human_gate_cleared(page)
+
         # Check if there is a subsequent form element, indicating verification has passed
         if (page.ele("@name=password", timeout=0.5) or 
             page.ele("@name=email", timeout=0.5) or

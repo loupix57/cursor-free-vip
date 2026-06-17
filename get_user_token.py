@@ -195,6 +195,8 @@ def refresh_cursor_oauth_tokens(
             if not new_access:
                 last_error = f"http_{response.status_code}"
                 should_logout = should_logout or response.status_code in (401, 403)
+                if response.status_code in (500, 502, 503, 504):
+                    time.sleep(0.8)
                 continue
 
             new_refresh = (data.get("refresh_token") or candidate).strip()
@@ -217,7 +219,8 @@ def refresh_cursor_oauth_tokens(
                 f"{translator.get('token.oauth_refresh_failed', error=str(e)) if translator else f'OAuth refresh failed: {e}'}"
                 f"{Style.RESET_ALL}"
             )
-            return {"ok": False, "should_logout": False, "error": str(e)}
+            time.sleep(0.5)
+            continue
 
     return {"ok": False, "should_logout": should_logout, "error": last_error}
 

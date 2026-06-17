@@ -65,7 +65,7 @@ def _authenticator_page_is_not_found(page) -> bool:
 
 def _open_authenticator_for_web_password_login(page, translator) -> None:
     page.get(cursor_web_authenticator_entry_url())
-    time.sleep(1.35)
+    time.sleep(0.4)
     if not _authenticator_page_is_not_found(page):
         return
     msg = (
@@ -75,7 +75,7 @@ def _open_authenticator_for_web_password_login(page, translator) -> None:
     )
     print(f"{Fore.YELLOW}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
     page.get(CURSOR_WEB_SIGN_UP)
-    time.sleep(1.1)
+    time.sleep(0.35)
     _try_click_xpaths(
         page,
         [
@@ -85,13 +85,23 @@ def _open_authenticator_for_web_password_login(page, translator) -> None:
             '//a[contains(., "Se connecter")]',
             '//button[contains(., "Sign in")]',
         ],
-        timeout_each=2.0,
+        timeout_each=0.7,
     )
-    time.sleep(0.75)
+    time.sleep(0.2)
 
 # Défauts mode 2 si [AgentCliLogin] absent du config.ini (voir aussi config.py)
 _MODE2_DEFAULT_W, _MODE2_DEFAULT_H = 1040, 780
 _MODE2_DEFAULT_X, _MODE2_DEFAULT_Y = 64, 40
+_GOOGLE_OAUTH_DEFAULT_W, _GOOGLE_OAUTH_DEFAULT_H = 1280, 920
+_GOOGLE_OAUTH_DEFAULT_X, _GOOGLE_OAUTH_DEFAULT_Y = 40, 24
+
+
+def _clamp_window_rect(w: int, h: int, x: int, y: int) -> Tuple[int, int, int, int]:
+    w = max(400, min(w, 3840))
+    h = max(320, min(h, 2160))
+    x = max(0, x)
+    y = max(0, y)
+    return w, h, x, y
 
 
 def get_cli_login_mode2_window_rect(translator=None) -> Tuple[int, int, int, int]:
@@ -111,13 +121,45 @@ def get_cli_login_mode2_window_rect(translator=None) -> Tuple[int, int, int, int
             h = cfg.getint("AgentCliLogin", "window_height", fallback=h)
             x = cfg.getint("AgentCliLogin", "window_x", fallback=x)
             y = cfg.getint("AgentCliLogin", "window_y", fallback=y)
+            # Ancienne taille par défaut (680×480) — migrer vers les nouveaux défauts.
+            if w <= 720 and h <= 520:
+                w, h = _MODE2_DEFAULT_W, _MODE2_DEFAULT_H
     except (ValueError, TypeError, Exception):
         pass
-    w = max(400, min(w, 3840))
-    h = max(320, min(h, 2160))
-    x = max(0, x)
-    y = max(0, y)
-    return w, h, x, y
+    return _clamp_window_rect(w, h, x, y)
+
+
+def get_google_oauth_window_rect(translator=None) -> Tuple[int, int, int, int]:
+    """
+    Fenêtre plus grande pour le flux Google OAuth (accounts.google.com, sélecteur de compte).
+    Clés ``[AgentCliLogin]`` : ``google_window_width``, ``google_window_height``, etc.
+    """
+    w, h, x, y = (
+        _GOOGLE_OAUTH_DEFAULT_W,
+        _GOOGLE_OAUTH_DEFAULT_H,
+        _GOOGLE_OAUTH_DEFAULT_X,
+        _GOOGLE_OAUTH_DEFAULT_Y,
+    )
+    try:
+        from config import get_config
+
+        cfg = get_config(translator)
+        if cfg and cfg.has_section("AgentCliLogin"):
+            w = cfg.getint("AgentCliLogin", "google_window_width", fallback=w)
+            h = cfg.getint("AgentCliLogin", "google_window_height", fallback=h)
+            x = cfg.getint("AgentCliLogin", "google_window_x", fallback=x)
+            y = cfg.getint("AgentCliLogin", "google_window_y", fallback=y)
+    except (ValueError, TypeError, Exception):
+        pass
+    return _clamp_window_rect(w, h, x, y)
+
+
+def get_chrome_public_window_rect(translator=None) -> Tuple[int, int, int, int]:
+    """
+    Fenêtre pour le profil Chrome CDP (logout/login, Google OAuth).
+    Utilise toujours la grande taille Google — ignore l'ancien 680×480 du config.ini.
+    """
+    return get_google_oauth_window_rect(translator)
 
 
 def load_last_saved_login_credentials(translator=None) -> Optional[Tuple[str, str]]:
@@ -847,6 +889,181 @@ def _cursor_session_cookie_present(page) -> bool:
     return bool(_read_workos_session_cookie(page))
 
 
+def _ensure_cursor_web_context(page, translator=None) -> None:
+    """Quitte chrome://… et ouvre cursor.com pour lire les cookies de session."""
+    try:
+        ulo = (page.url or "").lower()
+        if ulo.startswith("chrome:") or ulo.startswith("about:") or not ulo.startswith("http"):
+            page.get("https://www.cursor.com/dashboard/settings")
+            time.sleep(0.35)
+            return
+        if "authenticator.cursor" not in ulo and "cursor.com" not in ulo:
+            page.get("https://www.cursor.com/dashboard/settings")
+            time.sleep(0.45)
+    except Exception:
+        pass
+
+
+def _read_logged_in_cursor_email(page) -> str:
+    """E-mail du compte Cursor connecté dans le navigateur (settings / JWT / API)."""
+    try:
+        ulo = (page.url or "").lower()
+        if "cursor.com" not in ulo:
+            try:
+                page.get("https://www.cursor.com/dashboard/settings")
+                time.sleep(0.45)
+            except Exception:
+                pass
+        for sel in (
+            "@name=email",
+            'xpath://input[@type="email"]',
+            'xpath://input[contains(@id,"email")]',
+        ):
+            try:
+                el = page.ele(sel, timeout=0.35)
+                if not el:
+                    continue
+                val = (el.attr("value") or getattr(el, "value", None) or "").strip()
+                if "@" in val:
+                    return val
+            except Exception:
+                continue
+        try:
+            html = page.html or ""
+            for pat in (
+                r'"email"\s*:\s*"([^"]+@[^"]+)"',
+                r'cachedEmail["\']?\s*[:,]\s*["\']([^"\']+@[^"\']+)',
+            ):
+                m = re.search(pat, html, re.IGNORECASE)
+                if m:
+                    return m.group(1).strip()
+        except Exception:
+            pass
+        token = _read_workos_session_cookie(page)
+        if token:
+            from get_user_token import parse_workos_session_cookie
+
+            jwt = (parse_workos_session_cookie(token).get("access_token") or "").strip()
+            for claim in ("email", "preferred_username", "sub"):
+                val = _jwt_claim(jwt, claim)
+                if val and "@" in str(val):
+                    return str(val).strip()
+            try:
+                from cursor_acc_info import UsageManager
+
+                prof = UsageManager.get_stripe_profile(jwt)
+                if isinstance(prof, dict):
+                    em = (prof.get("customer") or {}).get("email") or prof.get("email")
+                    if em and "@" in str(em):
+                        return str(em).strip()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return ""
+
+
+def _cursor_web_needs_logout(page, target_email: str) -> Tuple[bool, str]:
+    """
+    True si une déconnexion est nécessaire avant de connecter ``target_email``.
+    Retourne (needs_logout, logged_in_email_or_empty).
+    """
+    _ensure_cursor_web_context(page)
+    target = (target_email or "").strip().lower()
+    ulo = (page.url or "").lower()
+    on_dashboard = "cursor.com" in ulo and ("/dashboard" in ulo or "/settings" in ulo)
+    has_session = _cursor_session_cookie_present(page)
+    if not has_session and on_dashboard:
+        time.sleep(0.35)
+        has_session = _cursor_session_cookie_present(page)
+    current = _read_logged_in_cursor_email(page) if (has_session or on_dashboard) else ""
+    if not has_session and not on_dashboard:
+        return False, current
+    if current and target and current.lower() == target:
+        return False, current
+    return True, current
+
+
+def _short_url(url: str, max_len: int = 88) -> str:
+    u = (url or "").strip()
+    if len(u) <= max_len:
+        return u or "?"
+    return u[: max_len - 3] + "..."
+
+
+def _detect_auth_login_phase(page, done_email: bool = False, done_password: bool = False, password_submitted: bool = False) -> str:
+    """Phase courante du flux authenticator (pour logs)."""
+    try:
+        u = (page.url or "").strip()
+        ulo = u.lower()
+        if _cursor_session_cookie_present(page) and "cursor.com" in ulo and (
+            "/dashboard" in ulo or "/settings" in ulo
+        ):
+            return "dashboard_connecte"
+        if "logindeepcontrol" in ulo:
+            return "confirmation_oui_connecter"
+        if "accounts.google.com" in ulo:
+            return "google_oauth"
+        if "authenticator.cursor" not in ulo:
+            if "cursor.com" in ulo:
+                return "cursor_web"
+            return "autre"
+        if not done_email and _authenticator_email_visible(page):
+            return "saisie_email"
+        if (done_email or "password" in ulo) and not done_password and _authenticator_password_visible(page):
+            return "saisie_mot_de_passe"
+        from new_signup import _is_human_gate_screen
+
+        if password_submitted and _is_human_gate_screen(page):
+            return "verification_humaine"
+        if done_password:
+            return "post_mot_de_passe"
+        if "password" in ulo:
+            return "page_password"
+        return "authenticator"
+    except Exception:
+        return "inconnu"
+
+
+def _auth_log_step(translator, phase: str, page=None, extra: str = "") -> None:
+    url = _short_url(getattr(page, "url", "") or "")
+    if translator:
+        msg = translator.get("agent_cli.auth_login_phase", phase=phase, url=url)
+        if extra:
+            msg = f"{msg} {extra}"
+    else:
+        msg = f"Web login — step: {phase} | URL: {url}"
+        if extra:
+            msg = f"{msg} | {extra}"
+    print(f"{Fore.CYAN}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
+
+
+def _auth_log_session_state(page, translator=None, target_email: str = "") -> None:
+    _ensure_cursor_web_context(page, translator)
+    has_session = _cursor_session_cookie_present(page)
+    current = _read_logged_in_cursor_email(page) if has_session else ""
+    phase = _detect_auth_login_phase(page)
+    parts = []
+    if target_email:
+        parts.append(
+            translator.get("agent_cli.auth_login_target", email=target_email)
+            if translator
+            else f"target: {target_email}"
+        )
+    parts.append(
+        translator.get("agent_cli.auth_session_yes" if has_session else "agent_cli.auth_session_no")
+        if translator
+        else ("session active" if has_session else "no session")
+    )
+    if current:
+        parts.append(
+            translator.get("agent_cli.auth_login_current_email", email=current)
+            if translator
+            else f"logged in: {current}"
+        )
+    _auth_log_step(translator, phase, page, extra=" | ".join(parts))
+
+
 def _delete_cursor_session_cookies_cdp(page) -> int:
     """Supprime les cookies HttpOnly Cursor/WorkOS via CDP (obligatoire pour un vrai logout)."""
     removed = 0
@@ -969,7 +1186,9 @@ def _get_chrome_preferred_profile_email(translator=None) -> str:
     return fallback
 
 
-def _chromium_page_chrome_public_current_profile(translator) -> Tuple[object, object, str, str, str]:
+def _chromium_page_chrome_public_current_profile(
+    translator, for_google_oauth: bool = False
+) -> Tuple[object, object, str, str, str]:
     """
     DrissionPage Chromium sur le profil Chrome de l'utilisateur (loic5488@gmail.com / config).
 
@@ -982,11 +1201,11 @@ def _chromium_page_chrome_public_current_profile(translator) -> Tuple[object, ob
     from utils import get_default_browser_path
 
     config = get_config(translator)
-    ww, hh, px, py = get_cli_login_mode2_window_rect(translator)
+    ww, hh, px, py = get_chrome_public_window_rect(translator)
     geo = (
-        translator.get("agent_cli.window_mode2", w=ww, h=hh, x=px, y=py)
+        translator.get("agent_cli.window_chrome_public", w=ww, h=hh, x=px, y=py)
         if translator
-        else f"Mode 2 window: {ww}x{hh} @ ({px},{py})"
+        else f"Chrome profile window: {ww}x{hh} @ ({px},{py})"
     )
     print(f"{Fore.CYAN}{EMOJI['INFO']} {geo}{Style.RESET_ALL}")
 
@@ -1084,12 +1303,16 @@ def _chromium_page_chrome_public_current_profile(translator) -> Tuple[object, ob
     return page, config, chosen_profile_dir, real_user_data, cdp_user_data
 
 
-def open_chrome_public_profile_page(translator) -> Tuple[object, object]:
+def open_chrome_public_profile_page(
+    translator, for_google_oauth: bool = False
+) -> Tuple[object, object]:
     """
     Ouvre DrissionPage sur le profil Chrome de l'utilisateur (miroir CDP synchronisé).
     Attache ``page._cursor_chrome_session`` pour resync vers Chrome réel à la fermeture.
     """
-    page, config, profile_dir, real_ud, cdp_ud = _chromium_page_chrome_public_current_profile(translator)
+    page, config, profile_dir, real_ud, cdp_ud = _chromium_page_chrome_public_current_profile(
+        translator, for_google_oauth=for_google_oauth
+    )
     page._cursor_chrome_session = {
         "real_ud": real_ud,
         "cdp_ud": cdp_ud,
@@ -1223,17 +1446,154 @@ def _dismiss_setup_prompts(page, translator=None) -> bool:
     return False
 
 
-def _try_click_xpaths(page, xpaths: Sequence[str], timeout_each: float = 4.0) -> bool:
+def _try_click_xpaths(page, xpaths: Sequence[str], timeout_each: float = 4.0, post_click_sleep: float = 0.5) -> bool:
     for xp in xpaths:
         try:
             el = page.ele(f"xpath:{xp}", timeout=timeout_each)
             if el:
                 el.click()
-                time.sleep(0.5)
+                time.sleep(post_click_sleep)
                 return True
         except Exception:
             continue
     return False
+
+
+def _authenticator_password_selectors() -> List[str]:
+    return [
+        "@name=password",
+        'xpath://input[@name="password"]',
+        'xpath://input[@type="password"]',
+        'xpath://input[contains(@autocomplete,"password")]',
+        'xpath://label[contains(., "Mot de passe")]/following::input[1]',
+        'xpath://label[contains(., "Password")]/following::input[1]',
+    ]
+
+
+def _authenticator_password_visible(page) -> bool:
+    for sel in _authenticator_password_selectors():
+        if _ele_ok(page, sel, 0.22):
+            return True
+    return False
+
+
+def _authenticator_email_prefilled(page, email: str) -> bool:
+    target = (email or "").strip().lower()
+    if not target:
+        return False
+    for sel in _authenticator_email_selectors():
+        try:
+            el = page.ele(sel, timeout=0.2)
+            if not el:
+                continue
+            val = (el.attr("value") or getattr(el, "value", None) or "").strip().lower()
+            if val == target:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _authenticator_email_selectors() -> List[str]:
+    return [
+        "@name=email",
+        'xpath://input[@type="email"]',
+        'xpath://input[contains(@placeholder,"e-mail")]',
+        'xpath://input[contains(@placeholder,"email")]',
+        'xpath://input[contains(@placeholder,"E-mail")]',
+        'xpath://label[contains(., "E-mail")]/following::input[1]',
+        'xpath://label[contains(., "Email")]/following::input[1]',
+    ]
+
+
+def _authenticator_email_visible(page) -> bool:
+    for sel in _authenticator_email_selectors():
+        if _ele_ok(page, sel, 0.28):
+            return True
+    return False
+
+
+def _authenticator_continue_buttons() -> List[str]:
+    return [
+        '//button[normalize-space()="Continuer"]',
+        '//button[normalize-space()="Continue"]',
+        '//button[contains(normalize-space(.), "Continuer")]',
+        '//button[contains(normalize-space(.), "Continue")]',
+        '//button[@type="submit" and contains(., "Continuer")]',
+        '//button[@type="submit" and contains(., "Continue")]',
+        '//button[@type="submit"]',
+        '//input[@type="submit"]',
+        '//button[contains(@class,"rt-") and contains(., "Continuer")]',
+        '//button[contains(@class,"rt-") and contains(., "Continue")]',
+    ]
+
+
+def _authenticator_signin_buttons() -> List[str]:
+    return [
+        '//button[normalize-space()="Se connecter"]',
+        '//button[normalize-space()="Sign in"]',
+        '//button[contains(normalize-space(.), "Se connecter")]',
+        '//button[contains(normalize-space(.), "Sign in") and not(contains(., "Google"))]',
+        '//button[@type="submit" and contains(., "connecter")]',
+        '//button[@type="submit" and contains(., "Sign in")]',
+        '//button[@type="submit"]',
+        '//input[@type="submit"]',
+    ]
+
+
+def _click_authenticator_action_button(page, labels: Sequence[str]) -> bool:
+    """Clic robuste sur Continuer / Se connecter (boutons Radix avec spans imbriqués)."""
+    joined = " ".join(labels).lower()
+    xpaths = _authenticator_continue_buttons() if "continu" in joined else _authenticator_signin_buttons()
+    if _try_click_xpaths(page, xpaths, timeout_each=0.35, post_click_sleep=0.06):
+        return True
+    try:
+        keys = [lb.strip().lower() for lb in labels if lb]
+        keys_json = json.dumps(keys)
+        clicked = page.run_js(
+            f"""
+            (() => {{
+              const labels = {keys_json};
+              const norm = (s) => (s || '').trim().toLowerCase().replace(/\\s+/g, ' ');
+              const isVisible = (el) => {{
+                const r = el.getBoundingClientRect();
+                return r.width > 2 && r.height > 2 && !!(el.offsetParent || getComputedStyle(el).position === 'fixed');
+              }};
+              const nodes = [...document.querySelectorAll('button,input[type="submit"],[role="button"]')];
+              for (const el of nodes) {{
+                if (!isVisible(el)) continue;
+                const t = norm(el.innerText || el.value || el.textContent);
+                if (!t) continue;
+                for (const lb of labels) {{
+                  if (t === norm(lb) || t.includes(norm(lb))) {{
+                    try {{ el.disabled = false; }} catch (_) {{}}
+                    el.click();
+                    return true;
+                  }}
+                }}
+              }}
+              const form = document.querySelector('form');
+              if (form && typeof form.requestSubmit === 'function') {{
+                form.requestSubmit();
+                return true;
+              }}
+              return false;
+            }})();
+            """
+        )
+        return bool(clicked)
+    except Exception:
+        return False
+
+
+def _press_enter_on_page(page) -> None:
+    try:
+        page.actions.key_down("Enter").key_up("Enter")
+    except Exception:
+        try:
+            page.run_js("document.activeElement && document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));")
+        except Exception:
+            pass
 
 
 def _try_fill_then_click(
@@ -1245,16 +1605,17 @@ def _try_fill_then_click(
     el = None
     for sel in field_selectors:
         try:
-            if sel.startswith("xpath:"):
-                el = page.ele(sel, timeout=3)
-            else:
-                el = page.ele(sel, timeout=3)
+            el = page.ele(sel, timeout=0.45)
             if el:
                 break
         except Exception:
             continue
     if not el:
         return False
+    try:
+        el.click()
+    except Exception:
+        pass
     try:
         el.clear()
     except Exception:
@@ -1263,17 +1624,125 @@ def _try_fill_then_click(
         el.input(value)
     except Exception:
         return False
-    time.sleep(0.32)
-    return _try_click_xpaths(page, button_xpaths, timeout_each=3.5)
+    time.sleep(0.06)
+    labels = []
+    for xp in button_xpaths:
+        if "Continuer" in xp or "continuer" in xp.lower():
+            labels = ["Continuer", "Continue"]
+            break
+        if "connecter" in xp.lower() or "sign in" in xp.lower():
+            labels = ["Se connecter", "Sign in"]
+            break
+    if labels and _click_authenticator_action_button(page, labels):
+        return True
+    if _try_click_xpaths(page, button_xpaths, timeout_each=0.4, post_click_sleep=0.1):
+        return True
+    _press_enter_on_page(page)
+    time.sleep(0.12)
+    if labels and _click_authenticator_action_button(page, labels):
+        return True
+    try:
+        ulo = (page.url or "").lower()
+
+        if "password" in ulo and labels and "sign" in " ".join(labels).lower():
+            return True
+        if "password" not in ulo and labels and "continu" in " ".join(labels).lower():
+            return True
+    except Exception:
+        pass
+    return False
 
 
-def _maybe_turnstile(page, config, translator) -> None:
+def _authenticator_password_has_value(page, min_len: int = 2) -> bool:
+    for sel in _authenticator_password_selectors():
+        try:
+            el = page.ele(sel, timeout=0.12)
+            if el and len((el.attr("value") or getattr(el, "value", None) or "").strip()) >= min_len:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _fill_authenticator_password_field(page, password: str) -> bool:
+    """Remplit le champ mot de passe uniquement (sans Turnstile)."""
+    el = None
+    for sel in _authenticator_password_selectors():
+        try:
+            el = page.ele(sel, timeout=0.4)
+            if el:
+                break
+        except Exception:
+            continue
+    if not el:
+        return False
+    try:
+        el.click()
+        el.clear()
+        el.input(password)
+        time.sleep(0.03)
+        return True
+    except Exception:
+        return False
+
+
+def _click_authenticator_signin(page) -> bool:
+    if _click_authenticator_action_button(page, ["Se connecter", "Sign in"]):
+        return True
+    _press_enter_on_page(page)
+    time.sleep(0.06)
+    if _click_authenticator_action_button(page, ["Se connecter", "Sign in"]):
+        return True
+    return _try_click_xpaths(
+        page, _authenticator_signin_buttons(), timeout_each=0.4, post_click_sleep=0.06
+    )
+
+
+def _resolve_turnstile_after_password(page, config, translator=None) -> bool:
+    """Turnstile uniquement après clic Se connecter (chemin rapide)."""
+    from new_signup import _is_human_gate_screen, resolve_human_gate_fast
+
+    for tick in range(10):
+        if _is_human_gate_screen(page):
+            return resolve_human_gate_fast(page, translator, max_attempts=5)
+        ulo = (page.url or "").lower()
+        if "authenticator.cursor" not in ulo or "logindeepcontrol" in ulo:
+            return True
+        time.sleep(0.1)
+    return True
+
+
+def _fill_authenticator_password_and_submit(page, password: str, config, translator=None) -> bool:
+    """Saisie mot de passe → Se connecter → Turnstile (dans cet ordre)."""
+    if not _fill_authenticator_password_field(page, password):
+        return False
+    if not _click_authenticator_signin(page):
+        return False
+    return _resolve_turnstile_after_password(page, config, translator)
+
+
+def _fast_auth_verification(page, config, translator) -> bool:
+    """Turnstile login : uniquement si écran humain bloquant."""
+    try:
+        from new_signup import _is_human_gate_screen, resolve_human_gate
+
+        if _is_human_gate_screen(page):
+            return resolve_human_gate(page, config, translator, max_attempts=8)
+        return True
+    except Exception:
+        return False
+
+
+def _maybe_turnstile(page, config, translator, quick: bool = False) -> None:
+    if quick:
+        _fast_auth_verification(page, config, translator)
+        return
     try:
         from new_signup import handle_turnstile
 
         handle_turnstile(page, config, translator)
     except Exception:
-        time.sleep(0.9)
+        time.sleep(0.4)
 
 
 def _ele_ok(page, selector: str, timeout: float = 1.5) -> bool:
@@ -1520,12 +1989,18 @@ def _authenticator_login_steps_after_page_load(
     password: str,
     translator,
     success_done_message: str,
-    deadline_seconds: float = 150.0,
+    deadline_seconds: float = 120.0,
+    target_email: str = "",
 ) -> bool:
     """Après ``page.get`` sur loginDeepControl ou entrée authenticator : e-mail, mot de passe, « Yes, Log In »."""
     done_email = False
     done_password = False
+    password_submitted = False
     done_yes = False
+    last_logged_phase = ""
+    target = (target_email or email or "").strip().lower()
+
+    _auth_log_session_state(page, translator, target_email=email)
 
     _try_click_xpaths(
         page,
@@ -1534,9 +2009,10 @@ def _authenticator_login_steps_after_page_load(
             '//button[contains(., "continue to sign in")]',
             '//button[contains(., "Continuer pour vous connecter")]',
         ],
-        timeout_each=2.5,
+        timeout_each=0.8,
+        post_click_sleep=0.06,
     )
-    time.sleep(0.85)
+    time.sleep(0.08)
 
     deadline = time.time() + deadline_seconds
     while time.time() < deadline and not done_yes:
@@ -1547,64 +2023,113 @@ def _authenticator_login_steps_after_page_load(
             pass
         ulo = u.lower()
 
+        phase = _detect_auth_login_phase(page, done_email, done_password, password_submitted)
+        if phase != last_logged_phase:
+            _auth_log_step(translator, phase, page)
+            last_logged_phase = phase
+
         if "start-download" in ulo or ("cursor.com" in ulo and ("/settings" in ulo or "dashboard?tab=settings" in ulo)):
             _dismiss_setup_prompts(page, translator)
-            time.sleep(0.85)
+            time.sleep(0.1)
             continue
 
-        if (
-            "authenticator.cursor" in u
-            and "/password" not in ulo
-            and not done_email
-            and (
-                _ele_ok(page, "@name=email", 2)
-                or _ele_ok(page, 'xpath://input[@type="email"]', 1.5)
-            )
-        ):
+        email_visible = _authenticator_email_visible(page)
+        if "authenticator.cursor" in u and not done_email and email_visible:
+            if translator:
+                print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('agent_cli.auth_login_email_fill')}{Style.RESET_ALL}")
             ok = _try_fill_then_click(
                 page,
-                ["@name=email", 'xpath://input[@type="email"]'],
+                _authenticator_email_selectors(),
                 email,
-                [
-                    '//button[normalize-space()="Continuer"]',
-                    '//button[normalize-space()="Continue"]',
-                    '//button[contains(@class,"rt-") and normalize-space()="Continuer"]',
-                    '//button[contains(@class,"rt-") and normalize-space()="Continue"]',
-                ],
+                _authenticator_continue_buttons(),
             )
+            if not ok:
+                ok = _click_authenticator_action_button(page, ["Continuer", "Continue"])
             if ok:
                 done_email = True
-                _maybe_turnstile(page, config, translator)
-            time.sleep(0.85)
+                if translator:
+                    print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('agent_cli.auth_login_email_done')}{Style.RESET_ALL}")
+            elif email_visible:
+                _click_authenticator_action_button(page, ["Continuer", "Continue"])
+            time.sleep(0.04)
             continue
 
+        if "authenticator.cursor" in u and not done_email and _authenticator_email_prefilled(page, email):
+            done_email = True
+
+        pwd_visible = _authenticator_password_visible(page)
         if (
             "authenticator.cursor" in u
-            and "password" in ulo
             and not done_password
-            and (
-                _ele_ok(page, "@name=password", 2)
-                or _ele_ok(page, 'xpath://input[@name="password"]', 1.5)
-            )
+            and not password_submitted
+            and pwd_visible
+            and (done_email or "password" in ulo)
         ):
-            ok = _try_fill_then_click(
-                page,
-                ["@name=password", 'xpath://input[@name="password"]'],
-                password,
-                [
-                    '//button[normalize-space()="Se connecter"]',
-                    '//button[normalize-space()="Sign in"]',
-                    '//button[contains(., "Se connecter")]',
-                    '//button[contains(., "Sign in") and not(contains(., "Google"))]',
-                ],
-            )
-            if ok:
-                done_password = True
-                _maybe_turnstile(page, config, translator)
-            time.sleep(1.1)
+            if translator:
+                print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('agent_cli.auth_login_password_fill')}{Style.RESET_ALL}")
+            if not _fill_authenticator_password_field(page, password):
+                time.sleep(0.05)
+                continue
+            if not _click_authenticator_signin(page):
+                _click_authenticator_signin(page)
+            password_submitted = True
+            if translator:
+                print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('agent_cli.auth_login_password_done')}{Style.RESET_ALL}")
+            _resolve_turnstile_after_password(page, config, translator)
+            done_password = True
+            time.sleep(0.05)
             continue
 
         if ("logindeepcontrol" in ulo or "cursor.com" in ulo) and not done_yes:
+            if "cursor.com" in ulo and ("/dashboard" in ulo or "/settings" in ulo) and (
+                not done_email or not done_password
+            ):
+                current = _read_logged_in_cursor_email(page)
+                if (
+                    current
+                    and target
+                    and current.lower() == target
+                    and _cursor_session_cookie_present(page)
+                ):
+                    done_yes = True
+                    time.sleep(0.15)
+                    print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {success_done_message}{Style.RESET_ALL}")
+                    return True
+                if _cursor_session_cookie_present(page):
+                    if current and target and current.lower() != target:
+                        msg = (
+                            translator.get(
+                                "agent_cli.auth_login_wrong_account",
+                                current=current,
+                                target=email,
+                            )
+                            if translator
+                            else f"Wrong account ({current}) — logging out, target is {email}…"
+                        )
+                        print(f"{Fore.YELLOW}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
+                        _logout_cursor_current_session(page, translator)
+                        _open_authenticator_for_web_password_login(page, translator)
+                        done_email = False
+                        done_password = False
+                        last_logged_phase = ""
+                        time.sleep(0.2)
+                        continue
+                    msg = (
+                        translator.get("agent_cli.auth_login_dashboard_without_login")
+                        if translator
+                        else "Dashboard with active session but login steps not done — logging out…"
+                    )
+                    print(f"{Fore.YELLOW}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
+                    _logout_cursor_current_session(page, translator)
+                    _open_authenticator_for_web_password_login(page, translator)
+                    done_email = False
+                    done_password = False
+                    last_logged_phase = ""
+                    time.sleep(0.2)
+                    continue
+                time.sleep(0.15)
+                continue
+
             if _try_click_xpaths(
                 page,
                 [
@@ -1612,30 +2137,57 @@ def _authenticator_login_steps_after_page_load(
                     '//button[contains(., "Yes, Log in")]',
                     '//button[contains(., "Log In") and contains(., "Yes")]',
                 ],
-                timeout_each=3.0,
+                timeout_each=0.9,
+                post_click_sleep=0.15,
             ):
                 done_yes = True
-                time.sleep(1.05)
+                time.sleep(0.3)
                 print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {success_done_message}{Style.RESET_ALL}")
                 return True
             if "cursor.com" in ulo and (
                 "/dashboard" in ulo or "tab=settings" in ulo or "/settings" in ulo
             ):
+                if not done_email or not done_password:
+                    time.sleep(0.15)
+                    continue
                 try:
                     for c in page.cookies() or []:
                         if c.get("name") == "WorkosCursorSessionToken" and (c.get("value") or "").strip():
                             done_yes = True
-                            time.sleep(0.55)
+                            time.sleep(0.15)
                             print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {success_done_message}{Style.RESET_ALL}")
                             return True
                 except Exception:
                     pass
 
-        time.sleep(0.45)
+        time.sleep(0.06)
 
     fail = translator.get("agent_cli.automate_timeout") if translator else "Timeout: could not complete all steps."
+    _auth_log_step(translator, "timeout", page, extra=fail)
     print(f"{Fore.YELLOW}{EMOJI['INFO']} {fail}{Style.RESET_ALL}")
     return False
+
+
+def _run_cursor_web_onboarding(page, config, email: str, translator=None) -> bool:
+    """Passe automatiquement role → trial (case marketing + plan gratuit) → dashboard."""
+    try:
+        from new_signup import run_onboarding_and_go_to_settings
+
+        msg = (
+            translator.get("agent_cli.post_login_onboarding")
+            if translator
+            else "Automatic onboarding (trial form, free plan, etc.)…"
+        )
+        print(f"{Fore.CYAN}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
+        return run_onboarding_and_go_to_settings(page, config, translator, email=email or "")
+    except Exception as e:
+        warn = (
+            translator.get("agent_cli.post_login_onboarding_failed", error=str(e))
+            if translator
+            else f"Onboarding automation failed: {e}"
+        )
+        print(f"{Fore.YELLOW}{EMOJI['INFO']} {warn}{Style.RESET_ALL}")
+        return False
 
 
 def _save_cursor_web_session_to_disk(
@@ -1903,7 +2455,7 @@ def automate_cursor_web_email_password_login(
             else "Web sign-in steps completed. Open the Cursor app if needed."
         )
         ok = _authenticator_login_steps_after_page_load(
-            page, config, email, password, translator, done_msg, deadline_seconds=240.0
+            page, config, email, password, translator, done_msg, deadline_seconds=240.0, target_email=email
         )
         if not ok:
             return False
@@ -1973,7 +2525,7 @@ def automate_cli_agent_login_flow(
             else "Steps completed. Check terminal `agent login` and close the browser when finished."
         )
         return _authenticator_login_steps_after_page_load(
-            page, config, email, password, translator, done_msg, deadline_seconds=150.0
+            page, config, email, password, translator, done_msg, deadline_seconds=150.0, target_email=email
         )
 
     except Exception as e:
@@ -2246,11 +2798,54 @@ def _automate_cursor_chrome_public_logout_login(
     cdp_ud = ""
     profile_dir = ""
     try:
-        page, config, profile_dir, real_ud, cdp_ud = _chromium_page_chrome_public_current_profile(translator)
-        if not _logout_cursor_current_session(page, translator):
-            return False
+        page, config, profile_dir, real_ud, cdp_ud = _chromium_page_chrome_public_current_profile(
+            translator, for_google_oauth=google_oauth
+        )
+        _auth_log_session_state(page, translator, target_email=email)
+        needs_logout, current_email = _cursor_web_needs_logout(page, email)
+        if needs_logout:
+            if current_email:
+                msg = (
+                    translator.get(
+                        "agent_cli.auth_login_wrong_account",
+                        current=current_email,
+                        target=email,
+                    )
+                    if translator
+                    else f"Active session for {current_email} — logging out before {email}…"
+                )
+                print(f"{Fore.CYAN}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
+            else:
+                sk = (
+                    translator.get("agent_cli.auth_login_session_logout")
+                    if translator
+                    else "Active Cursor session detected — logging out…"
+                )
+                print(f"{Fore.CYAN}{EMOJI['INFO']} {sk}{Style.RESET_ALL}")
+            if not _logout_cursor_current_session(page, translator):
+                return False
+        elif current_email and current_email.lower() == email.strip().lower():
+            sk = (
+                translator.get("agent_cli.auth_login_already_target", email=email)
+                if translator
+                else f"Already signed in as {email} — logout skipped."
+            )
+            print(f"{Fore.CYAN}{EMOJI['INFO']} {sk}{Style.RESET_ALL}")
+        else:
+            sk = (
+                translator.get("agent_cli.auth_login_skip_logout")
+                if translator
+                else "No Cursor session detected — logout skipped."
+            )
+            print(f"{Fore.CYAN}{EMOJI['INFO']} {sk}{Style.RESET_ALL}")
         _open_authenticator_for_web_password_login(page, translator)
-        time.sleep(0.45)
+        _auth_log_step(
+            translator,
+            _detect_auth_login_phase(page),
+            page,
+            extra=translator.get("agent_cli.auth_login_authenticator_open") if translator else "authenticator opened",
+        )
+        time.sleep(0.12)
         done_msg = (
             translator.get("agent_cli.cursor_web_done")
             if translator
@@ -2263,11 +2858,12 @@ def _automate_cursor_chrome_public_logout_login(
             auth_type = cursor_cached_auth_type or "google"
         else:
             ok = _authenticator_login_steps_after_page_load(
-                page, config, email, password, translator, done_msg, deadline_seconds=240.0
+                page, config, email, password, translator, done_msg, deadline_seconds=240.0, target_email=email
             )
             auth_type = cursor_cached_auth_type or "Auth_0"
         if not ok:
             return False
+        _run_cursor_web_onboarding(page, config, email, translator)
         return _save_cursor_web_session_to_disk(
             page,
             email,

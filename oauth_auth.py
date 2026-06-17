@@ -486,6 +486,14 @@ class OAuthHandler:
             co.set_argument('--no-default-browser-check')
             co.set_argument('--disable-gpu')
             co.set_argument('--remote-debugging-port=9222')  # 明确指定调试端口
+            try:
+                from agent_cli_helper import get_google_oauth_window_rect
+
+                ww, hh, px, py = get_google_oauth_window_rect(self.translator)
+                co.set_argument(f'--window-size={ww},{hh}')
+                co.set_argument(f'--window-position={px},{py}')
+            except Exception:
+                pass
             
             # Platform-specific options
             if sys.platform.startswith('linux'):

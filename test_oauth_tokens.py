@@ -92,5 +92,30 @@ class OAuthTokenTests(unittest.TestCase):
         mock_post.assert_called_once()
 
 
+    @patch("builtins.print")
+    @patch("get_user_token.requests.post")
+    def test_oauth_http_500_tries_next_candidate(self, mock_post, _mock_print):
+        from unittest.mock import MagicMock
+
+        resp_fail = MagicMock()
+        resp_fail.status_code = 500
+        resp_fail.text = '{"error":"internal"}'
+        resp_fail.json.return_value = {"error": "internal"}
+
+        resp_ok = MagicMock()
+        resp_ok.status_code = 200
+        resp_ok.text = "{}"
+        resp_ok.json.return_value = {
+            "access_token": FAKE_JWT,
+            "refresh_token": OTHER_JWT,
+            "shouldLogout": False,
+        }
+        mock_post.side_effect = [resp_fail, resp_ok]
+
+        result = refresh_cursor_oauth_tokens(OTHER_JWT, access_token=FAKE_JWT)
+        self.assertTrue(result["ok"])
+        self.assertEqual(mock_post.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
