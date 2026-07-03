@@ -1404,8 +1404,13 @@ def run_onboarding_and_go_to_settings(browser_tab, config, translator=None, emai
             current_url = browser_tab.url if hasattr(browser_tab, 'url') else ''
         except Exception:
             current_url = ''
-
-        # Si Cursor nous a envoyés directement sur /trial, forcer d'abord /onboarding/role
+        ulo = (current_url or "").lower()
+        if "cursor.com" in ulo and "/dashboard" in ulo and (
+            "settings" in ulo or "tab=settings" in ulo
+        ):
+            if translator:
+                print(f"{Fore.GREEN}✅ {translator.get('register.onboarding_skipped_settings') if translator else 'Déjà sur la page settings — onboarding ignoré.'}{Style.RESET_ALL}")
+            return True
         if '/trial' in current_url and 'onboarding/role' not in current_url:
             role_url = "https://cursor.com/onboarding/role?next=%2Ftrial%3FreturnTo%3D%252Fdashboard"
             if translator:
@@ -1560,8 +1565,11 @@ def _resolve_post_password_gate(page, translator=None, max_seconds: float = 8.0)
     return True
 
 
-def _wait_for_verification_code_step(page, config, translator=None, deadline_seconds: float = 55.0) -> bool:
+def _wait_for_verification_code_step(page, config, translator=None, controller=None, deadline_seconds: float = 55.0) -> bool:
     """Attend les champs code à 6 chiffres ; Turnstile limité si l'écran humain bloque."""
+    if controller and hasattr(controller, "start_verification_code_prefetch"):
+        controller.start_verification_code_prefetch()
+
     msg = (
         translator.get("register.waiting_for_verification_code")
         if translator
@@ -1575,7 +1583,7 @@ def _wait_for_verification_code_step(page, config, translator=None, deadline_sec
             else "Si une vérification humaine s'affiche, validez-la dans le navigateur."
         )
         print(f"{Fore.YELLOW}ℹ️ {hint}{Style.RESET_ALL}")
-        deadline_seconds = max(deadline_seconds, 120.0)
+        deadline_seconds = min(deadline_seconds, 45.0)
     deadline = time.time() + deadline_seconds
     turnstile_passes = 0
     while time.time() < deadline:
@@ -1741,7 +1749,7 @@ def handle_verification_code(browser_tab, email_tab, controller, config, transla
     try:
         log.info("handle_verification_code: email_tab=%s", "yes" if email_tab else "manual")
 
-        if not _wait_for_verification_code_step(browser_tab, config, translator):
+        if not _wait_for_verification_code_step(browser_tab, config, translator, controller=controller):
             if translator:
                 print(f"{Fore.RED}❌ {translator.get('register.verification_timeout')}{Style.RESET_ALL}")
             return False, None
@@ -1927,6 +1935,9 @@ def main(email=None, password=None, first_name=None, last_name=None, email_tab=N
         if fill_signup_form(page, first_name, last_name, email, config, translator):
             if translator:
                 print(f"\n{Fore.GREEN}✅ {translator.get('register.form_submitted')}{Style.RESET_ALL}")
+
+            if controller and hasattr(controller, "start_verification_code_prefetch"):
+                controller.start_verification_code_prefetch()
 
             if not _wait_for_signup_password_step(page, config, translator):
                 print(

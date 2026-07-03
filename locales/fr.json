@@ -147,6 +147,7 @@
         "chrome_cdp_mirror_init": "Première copie miroir Chrome CDP → {path} (une fois, peut prendre une minute)…",
         "chrome_cdp_sync_from_real": "Synchronisation du profil {profile} depuis Chrome réel vers le miroir CDP…",
         "chrome_cdp_sync_to_real": "Synchronisation de la session Cursor vers le profil Chrome réel {profile}…",
+        "chrome_cursor_cookies_synced": "Cookies Cursor fusionnés : {count}",
         "chrome_mirror_account_ok": "Compte Chrome miroir vérifié : {email} ({profile})",
         "chrome_mirror_account_mismatch": "Compte Chrome miroir inattendu — attendu {expected}, actuel {actual} ({profile})",
         "chrome_cdp_retry": "Nouvelle tentative connexion Chrome CDP ({attempt}/{max_attempts})…",
@@ -192,6 +193,8 @@
         "same_password_as_cursor": "Connexion sur le nœud : même mot de passe que Cursor (affiché ci-dessus). Identifiant = partie avant @ avec les points en _ (ex. iamara_lopez).",
         "enable_in_config": "Pour créer un compte Linux sur le nœud distant, activez [RemoteNode] dans la config (menu Principal → Configuration).",
         "fetching_code_from_node": "Récupération du code de vérification depuis la boîte mail sur le nœud...",
+        "prefetch_started": "Récupération du code sur le nœud en parallèle…",
+        "code_prefetched": "Code récupéré en arrière-plan depuis le nœud.",
         "code_retrieved": "Code récupéré depuis le nœud.",
         "code_not_found_fallback": "Code non trouvé sur le nœud, saisie manuelle.",
         "cleanup_none": "Aucun compte au format prénom_nom trouvé (home sous /home/).",
@@ -421,6 +424,8 @@
         "reuse_relogin_start": "Ouverture du navigateur pour obtenir un nouveau jeton…",
         "reuse_relogin_no_password": "Mot de passe absent dans cursor_accounts.txt — menu Connexion (e-mail + mot de passe), puis relancez 1→4.",
         "reuse_chrome_logout_login": "Profil Chrome : déconnexion session Cursor courante, puis connexion avec {email}…",
+        "reuse_recently": "réutilisé récemment",
+        "onboarding_skipped_settings": "Déjà sur la page settings — onboarding ignoré.",
         "external_mail_chrome_logout": "Déconnexion de la session Cursor web (profil Chrome) avant inscription…",
         "external_mail_chrome_logout_retry": "Échec logout Chrome — nouvelle tentative (fermez Chrome si besoin)…",
         "using_chrome_public_profile": "Navigateur = votre profil Chrome (pas de session temporaire) — accès direct à vos cookies et extensions.",
@@ -1095,7 +1100,11 @@
         "shared_file_prompt": "Nouveau chemin (Entrée = garder, « auto » = défaut Documents/.cursor-free-vip) : ",
         "shared_file_create_parent": "Le dossier parent n'existe pas. Le créer ? (oui/non) : ",
         "shared_file_save_failed": "Impossible d'enregistrer le chemin dans config.ini.",
-        "shared_file_saved": "Chemin enregistré : {path}"
+        "shared_file_saved": "Chemin enregistré : {path}",
+        "backup_created": "Sauvegarde comptes : {path}",
+        "file_locked": "Fichier comptes peut-être utilisé sur un autre PC ({path}).",
+        "file_locked_continue": "Continuer quand même ? (oui/non) : ",
+        "shared_config_hint": "Astuce multi-PC : [Account] shared_config_ini dans config.ini pour partager Chrome/RemoteNode."
     },
     "tempmail": {
         "no_email": "Aucun e-mail de vérification du curseur trouvé",

@@ -147,6 +147,7 @@
         "chrome_cdp_mirror_init": "First-time Chrome CDP mirror copy → {path} (one-time, may take a minute)…",
         "chrome_cdp_sync_from_real": "Syncing profile {profile} from real Chrome into CDP mirror…",
         "chrome_cdp_sync_to_real": "Syncing Cursor session back to real Chrome profile {profile}…",
+        "chrome_cursor_cookies_synced": "Cursor cookies merged: {count}",
         "chrome_mirror_account_ok": "Chrome mirror account verified: {email} ({profile})",
         "chrome_mirror_account_mismatch": "Chrome mirror account mismatch — expected {expected}, got {actual} ({profile})",
         "chrome_cdp_retry": "Retrying Chrome CDP connection ({attempt}/{max_attempts})…",
@@ -192,6 +193,8 @@
         "same_password_as_cursor": "Login on node: same password as Cursor (shown above). Username = part before @ with dots → underscores (e.g. iamara_lopez).",
         "enable_in_config": "To create a Linux account on the remote node, enable [RemoteNode] in config (Main menu → Configuration).",
         "fetching_code_from_node": "Fetching verification code from mailbox on remote node...",
+        "prefetch_started": "Fetching code from node in parallel…",
+        "code_prefetched": "Code prefetched from remote node in background.",
         "code_retrieved": "Verification code retrieved from node.",
         "code_not_found_fallback": "Code not found on node, please enter it manually.",
         "cleanup_none": "No firstname_lastname-style accounts found (home under /home/).",
@@ -379,6 +382,8 @@
         "reuse_relogin_start": "Opening browser to obtain a new token…",
         "reuse_relogin_no_password": "No password in cursor_accounts.txt — use Connect menu (email + password), then rerun 1→4.",
         "reuse_chrome_logout_login": "Chrome profile: logout current Cursor session, then sign in as {email}…",
+        "reuse_recently": "reused recently",
+        "onboarding_skipped_settings": "Already on settings page — onboarding skipped.",
         "external_mail_chrome_logout": "Logging out current Cursor web session (Chrome profile) before sign-up…",
         "external_mail_chrome_logout_retry": "Chrome logout failed — retrying (close Chrome manually if needed)…",
         "using_chrome_public_profile": "Browser = your Chrome profile (not a temp session) — direct access to your cookies and extensions.",
@@ -1083,7 +1088,11 @@
         "shared_file_prompt": "New path (Enter = keep, \"auto\" = default Documents/.cursor-free-vip): ",
         "shared_file_create_parent": "Parent folder does not exist. Create it? (yes/no): ",
         "shared_file_save_failed": "Could not save path to config.ini.",
-        "shared_file_saved": "Path saved: {path}"
+        "shared_file_saved": "Path saved: {path}",
+        "backup_created": "Accounts backup: {path}",
+        "file_locked": "Accounts file may be in use on another PC ({path}).",
+        "file_locked_continue": "Continue anyway? (yes/no): ",
+        "shared_config_hint": "Multi-PC tip: set [Account] shared_config_ini in config.ini to share Chrome/RemoteNode."
     },
     "tempmail": {
         "check_email_failed": "Check email failed: {error}",

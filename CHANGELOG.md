@@ -1,5 +1,13 @@
 # Change Log
 
+## v1.14.0
+1. **Sync Chrome** : fusion ciblée des cookies Cursor/WorkOS uniquement (`chrome_session_sync.py`) — ne remplace plus tout le profil Chrome (préserve les sessions Google).
+2. **Config** : `[Chrome] automation_profile_email`, `sync_cursor_only` ; `[Account] accounts_file`, `shared_config_ini`.
+3. **Inscription 1→1** : Turnstile désactivé ; préchargement parallèle du code SSH ; timeouts réduits ; skip onboarding si déjà sur paramètres ; connexion Chrome post-inscription (comme 1→4).
+4. **Réutilisation 1→4** : filtre comptes sans mot de passe ; badge « réutilisé récemment » ; tri du plus ancien au plus récent.
+5. **Multi-PC** : verrou `cursor_accounts.txt.lock`, sauvegardes automatiques, menu **5→4** pour chemin partagé.
+6. **Locales** : `en.json` / `fr.json` (sync Chrome, comptes partagés, indicateurs réutilisation).
+
 ## v1.13.0
 1. **Menu principal** : entrées retirées (OAuth Google/GitHub, vérif utilisateur autorisé, bypass limite tokens, restauration machine id depuis sauvegarde, profil Chrome OAuth, auth manuelle custom) ; menu renuméroté **0–16** ; références RemoteNode « option 8 » (config).
 2. **Option 7 — domaine e-mail** : affichage du nombre de comptes enregistrés **par domaine** (`cursor_accounts.txt`) avant changement de domaine.

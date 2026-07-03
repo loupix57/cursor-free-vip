@@ -1,8 +1,10 @@
 import os
 import configparser
+import shutil
+import time
 from colorama import Fore, Style
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import Counter
 
 from utils import get_user_documents_path
@@ -56,6 +58,59 @@ def save_accounts_file_config(path: str, translator=None) -> bool:
     except Exception:
         return False
 
+
+def backup_accounts_file(accounts_file: str, translator=None) -> str:
+    """Sauvegarde cursor_accounts.txt avant opération risquée."""
+    if not accounts_file or not os.path.isfile(accounts_file):
+        return ""
+    backup_dir = os.path.join(get_user_documents_path(), ".cursor-free-vip", "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = os.path.join(backup_dir, f"cursor_accounts_{stamp}.txt")
+    shutil.copy2(accounts_file, backup_path)
+    msg = (
+        translator.get("account.backup_created", path=backup_path)
+        if translator
+        else f"Sauvegarde comptes : {backup_path}"
+    )
+    print(f"{Fore.CYAN}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
+    return backup_path
+
+
+def acquire_accounts_file_lock(accounts_file: str, translator=None, stale_hours: float = 2.0) -> bool:
+    """Verrou léger pour éviter édition simultanée multi-PC."""
+    if not accounts_file:
+        return True
+    lock_path = accounts_file + ".lock"
+    try:
+        if os.path.isfile(lock_path):
+            age_h = (time.time() - os.path.getmtime(lock_path)) / 3600.0
+            if age_h < stale_hours:
+                warn = (
+                    translator.get("account.file_locked", path=lock_path)
+                    if translator
+                    else f"Fichier comptes peut-être utilisé sur un autre PC ({lock_path})."
+                )
+                print(f"{Fore.YELLOW}{EMOJI['INFO']} {warn}{Style.RESET_ALL}")
+                return False
+        with open(lock_path, "w", encoding="utf-8") as f:
+            f.write(f"pid={os.getpid()}\nstarted={datetime.now().isoformat(timespec='seconds')}\n")
+        return True
+    except OSError:
+        return True
+
+
+def release_accounts_file_lock(accounts_file: str) -> None:
+    if not accounts_file:
+        return
+    lock_path = accounts_file + ".lock"
+    try:
+        if os.path.isfile(lock_path):
+            os.remove(lock_path)
+    except OSError:
+        pass
+
+
 # Define emoji constants
 EMOJI = {
     'SUCCESS': '✅',
@@ -82,6 +137,7 @@ class AccountManager:
         try:
             sub = (subscription or "").strip() or "Unknown"
             self._ensure_accounts_parent_dir()
+            backup_accounts_file(self.accounts_file, self.translator)
             with open(self.accounts_file, 'a', encoding='utf-8') as f:
                 f.write(f"\n{'='*50}\n")
                 f.write(f"Created At: {datetime.now().isoformat(timespec='seconds')}\n")
@@ -223,6 +279,14 @@ class AccountManager:
                 except ValueError:
                     created_at = None
 
+            last_reused_raw = entry.get('last reused at')
+            last_reused_at = None
+            if last_reused_raw:
+                try:
+                    last_reused_at = datetime.fromisoformat(last_reused_raw)
+                except ValueError:
+                    last_reused_at = None
+
             sub = (entry.get('subscription') or '').strip()
             if not sub:
                 sub = (entry.get('usage limit') or '').strip()
@@ -242,6 +306,7 @@ class AccountManager:
                     'usage_limit': (entry.get('usage limit') or '').strip(),
                     'usage_info': usage_info,
                     'created_at': created_at,
+                    'last_reused_at': last_reused_at,
                 }
             )
         return accounts
@@ -539,6 +604,12 @@ def configure_shared_accounts_file(translator=None) -> bool:
         else "Chemin du fichier comptes (cursor_accounts.txt). Mettez le même chemin sur chaque PC (OneDrive, NAS…)."
     )
     print(f"{Fore.CYAN}{EMOJI['INFO']} {intro}{Style.RESET_ALL}")
+    hint_cfg = (
+        translator.get("account.shared_config_hint")
+        if translator
+        else "Astuce multi-PC : [Account] shared_config_ini dans config.ini pour partager Chrome/RemoteNode."
+    )
+    print(f"{Fore.CYAN}{EMOJI['INFO']} {hint_cfg}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('account.shared_file_current', path=current) if translator else f'Actuel : {current}'}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('account.shared_file_count', count=count) if translator else f'Comptes enregistrés : {count}'}{Style.RESET_ALL}")
 

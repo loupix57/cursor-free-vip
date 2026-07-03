@@ -542,8 +542,44 @@ def _copy_path_if_exists(src: str, dst: str, retries: int = 4) -> None:
             time.sleep(0.55 * (attempt + 1))
 
 
-def _sync_chrome_profile_session(src_ud: str, dst_ud: str, profile_dir: str) -> None:
-    """Copie cookies / stockage local du profil src → dst (Chrome doit être fermé)."""
+def _chrome_sync_cursor_only(translator=None) -> bool:
+    try:
+        from config import get_config
+
+        cfg = get_config(translator)
+        if cfg and cfg.has_section("Chrome"):
+            return cfg.get("Chrome", "sync_cursor_only", fallback="true").strip().lower() in (
+                "true",
+                "1",
+                "yes",
+                "on",
+            )
+    except Exception:
+        pass
+    return True
+
+
+def _sync_chrome_profile_session(src_ud: str, dst_ud: str, profile_dir: str, translator=None) -> None:
+    """Sync session Chrome : cookies Cursor uniquement (défaut) ou copie complète (legacy)."""
+    if _chrome_sync_cursor_only(translator):
+        from chrome_session_sync import sync_cursor_cookies_between_profiles
+
+        count = sync_cursor_cookies_between_profiles(src_ud, dst_ud, profile_dir)
+        if translator:
+            label = (
+                translator.get("agent_cli.chrome_cursor_cookies_synced", count=max(count, 0))
+                if count >= 0
+                else "Cookies Cursor copiés (base initiale)."
+            )
+        else:
+            label = (
+                f"Cookies Cursor fusionnés : {max(count, 0)}"
+                if count >= 0
+                else "Cookies Cursor copiés (base initiale)."
+            )
+        print(f"{Fore.CYAN}{EMOJI['INFO']} {label}{Style.RESET_ALL}")
+        return
+
     for rel in _chrome_profile_session_rel_paths():
         src = os.path.join(src_ud, profile_dir, rel)
         dst = os.path.join(dst_ud, profile_dir, rel)
@@ -577,7 +613,7 @@ def _ensure_chrome_cdp_mirror(real_ud: str, cdp_ud: str, profile_dir: str, trans
             else f"Syncing Chrome profile {profile_dir} from real browser into CDP mirror…"
         )
         print(f"{Fore.CYAN}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
-        _sync_chrome_profile_session(real_ud, cdp_ud, profile_dir)
+        _sync_chrome_profile_session(real_ud, cdp_ud, profile_dir, translator)
 
 
 def _sync_chrome_cdp_back_to_real(
@@ -592,7 +628,7 @@ def _sync_chrome_cdp_back_to_real(
         else f"Syncing Cursor session back to real Chrome profile {profile_dir}…"
     )
     print(f"{Fore.CYAN}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
-    _sync_chrome_profile_session(cdp_ud, real_ud, profile_dir)
+    _sync_chrome_profile_session(cdp_ud, real_ud, profile_dir, translator)
 
 
 def _finish_chrome_public_session(
@@ -612,6 +648,12 @@ def _finish_chrome_public_session(
     _kill_chrome_processes(translator)
     time.sleep(0.9)
     if real_ud and cdp_ud and profile_dir:
+        try:
+            from account_manager import resolve_accounts_file_path, backup_accounts_file
+
+            backup_accounts_file(resolve_accounts_file_path(translator), translator)
+        except Exception:
+            pass
         _sync_chrome_cdp_back_to_real(real_ud, cdp_ud, profile_dir, translator)
 
 
@@ -1178,6 +1220,9 @@ def _get_chrome_preferred_profile_email(translator=None) -> str:
 
         cfg = get_config(translator)
         if cfg and cfg.has_section("Chrome"):
+            auto = (cfg.get("Chrome", "automation_profile_email", fallback="") or "").strip()
+            if auto and "@" in auto:
+                return auto
             raw = (cfg.get("Chrome", "preferred_profile_email", fallback=fallback) or "").strip()
             if raw and "@" in raw:
                 return raw

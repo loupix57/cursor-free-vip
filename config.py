@@ -118,15 +118,21 @@ def setup_config(translator=None):
                 'reuse_min_days': '31',
                 # Chemin partagé du fichier comptes (OneDrive, NAS, etc.). Vide = auto.
                 'accounts_file': '',
+                # config.ini partagé (OneDrive…) : fusionne [Account], [Chrome], [RemoteNode].
+                'shared_config_ini': '',
             },
             'Chrome': {
                 # Profil Chrome public utilisé pour logout/login Cursor web (flux 1→2, 1→4).
                 'preferred_profile_email': 'loic5488@gmail.com',
+                # Profil dédié automation (vide = preferred_profile_email). Ex. compte Chrome séparé.
+                'automation_profile_email': '',
                 # Vide = détection auto via account_info Chrome ; « Default » pour loic5488@gmail.com sur cette machine.
                 'profile_directory': '',
                 'debug_port': '9222',
                 # Toujours fermer Chrome puis relancer le bon profil (évite session sur Default).
                 'force_profile_relaunch': 'true',
+                # true = sync uniquement cookies Cursor (ne pas écraser cookies Google).
+                'sync_cursor_only': 'true',
             },
             'Language': {
                 'current_language': '',  # Set by local system detection if empty
@@ -359,6 +365,8 @@ def setup_config(translator=None):
                             config.write(f)
                 except (ValueError, TypeError):
                     pass
+            _apply_shared_config_overlay(config)
+            return config
         else:
             for section, options in default_config.items():
                 config.add_section(section)
@@ -370,6 +378,7 @@ def setup_config(translator=None):
             if translator:
                 print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {translator.get('config.config_created', config_file=config_file) if translator else f'Config created: {config_file}'}{Style.RESET_ALL}")
 
+        _apply_shared_config_overlay(config)
         return config
 
     except Exception as e:
@@ -377,6 +386,31 @@ def setup_config(translator=None):
             print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('config.config_setup_error', error=str(e)) if translator else f'Error setting up config: {str(e)}'}{Style.RESET_ALL}")
         return None
     
+def _apply_shared_config_overlay(config) -> None:
+    """Fusionne sections partagées depuis un config.ini commun (multi-PC)."""
+    try:
+        if not config or not config.has_section("Account"):
+            return
+        shared = (config.get("Account", "shared_config_ini", fallback="") or "").strip()
+        if not shared:
+            return
+        shared = os.path.normpath(os.path.expanduser(os.path.expandvars(shared)))
+        if not os.path.isfile(shared):
+            return
+        overlay = configparser.ConfigParser()
+        overlay.read(shared, encoding="utf-8")
+        for section in ("Account", "Chrome", "RemoteNode"):
+            if not overlay.has_section(section):
+                continue
+            if not config.has_section(section):
+                config.add_section(section)
+            for key, val in overlay.items(section):
+                if key == "DEFAULT":
+                    continue
+                config.set(section, key, val)
+    except Exception:
+        pass
+
 def print_config(config, translator=None):
     """Print configuration in a readable format"""
     if not config:

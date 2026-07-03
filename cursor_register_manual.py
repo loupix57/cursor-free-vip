@@ -2,6 +2,7 @@ import os
 from colorama import Fore, Style, init
 import time
 import random
+from datetime import datetime
 from faker import Faker
 from cursor_auth import CursorAuth, apply_cursor_session
 from get_user_token import get_token_from_cookie, parse_workos_session_cookie
@@ -60,6 +61,8 @@ class CursorRegistration:
         self.email_tab = None
         # Contrôle fin par flux : 1->2 peut activer le refresh OAuth explicitement.
         self.oauth_refresh_on_save = bool(oauth_refresh_on_save)
+        self._remote_code_prefetch_started = False
+        self._prefetched_verification_code = None
         
         # initialize Faker instance
         self.faker = Faker()
@@ -146,12 +149,69 @@ class CursorRegistration:
             print(f"{Fore.RED}{EMOJI['ERROR']} {self.translator.get('register.email_setup_failed', error=str(e))}{Style.RESET_ALL}")
             return False
 
+    def start_verification_code_prefetch(self):
+        """Lance la récupération SSH du code en arrière-plan (flux 1→1)."""
+        if self._remote_code_prefetch_started or self.external_personal_mail:
+            return
+        config = get_config(self.translator)
+        if not config or not config.has_section("RemoteNode"):
+            return
+        if config.get("RemoteNode", "enabled", fallback="false").strip().lower() not in ("true", "1", "yes"):
+            return
+        ssh_host = config.get("RemoteNode", "host", fallback="").strip()
+        if not ssh_host or not self.email_address or "@" not in self.email_address:
+            return
+
+        from remote_user_manager import email_to_username, get_verification_code_from_remote_mail
+        import threading
+
+        uname = email_to_username(self.email_address)
+        if not uname:
+            return
+
+        self._remote_code_prefetch_started = True
+        ssh_user = config.get("RemoteNode", "user", fallback="pi").strip() or "pi"
+        translator = self.translator
+        email_address = self.email_address
+
+        def _worker():
+            for _ in range(24):
+                try:
+                    code = get_verification_code_from_remote_mail(
+                        uname, ssh_host, ssh_user, translator
+                    )
+                    if code and code.isdigit() and len(code) == 6:
+                        self._prefetched_verification_code = code
+                        msg = (
+                            translator.get("remote_user.code_prefetched")
+                            if translator
+                            else "Code récupéré en arrière-plan depuis le nœud."
+                        )
+                        print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {msg}{Style.RESET_ALL}")
+                        return
+                except Exception:
+                    pass
+                time.sleep(5)
+
+        msg = (
+            self.translator.get("remote_user.prefetch_started")
+            if self.translator
+            else "Récupération du code sur le nœud en parallèle…"
+        )
+        print(f"{Fore.CYAN}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
+        threading.Thread(target=_worker, daemon=True).start()
+
     def get_verification_code(self):
         """Récupère le code : d'abord depuis la boîte mail sur le nœud distant (si RemoteNode), sinon saisie manuelle."""
         try:
             import time
             import configparser
             from utils import get_user_documents_path
+
+            prefetched = getattr(self, "_prefetched_verification_code", None)
+            if prefetched and str(prefetched).isdigit() and len(str(prefetched)) == 6:
+                self._prefetched_verification_code = None
+                return str(prefetched)
 
             if self.external_personal_mail:
                 log.info("External personal mail: manual verification code only")
@@ -225,7 +285,32 @@ class CursorRegistration:
     def register_cursor(self):
         """Register Cursor"""
         browser_tab = None
+        accounts_path = ""
+        lock_ok = True
         try:
+            from account_manager import (
+                resolve_accounts_file_path,
+                acquire_accounts_file_lock,
+                release_accounts_file_lock,
+                backup_accounts_file,
+            )
+
+            accounts_path = resolve_accounts_file_path(self.translator)
+            lock_ok = acquire_accounts_file_lock(accounts_path, self.translator)
+            if not lock_ok:
+                yn = (
+                    input(
+                        self.translator.get("account.file_locked_continue")
+                        if self.translator
+                        else "Continuer quand même ? (oui/non) : "
+                    )
+                    .strip()
+                    .lower()
+                )
+                if yn not in ("oui", "o", "yes", "y"):
+                    return False
+            backup_accounts_file(accounts_path, self.translator)
+
             print(f"{Fore.CYAN}{EMOJI['START']} {self.translator.get('register.register_start')}...{Style.RESET_ALL}")
             
             # Check email source: TempMailPlus, LocalEmail (IMAP), or manual
@@ -370,6 +455,8 @@ class CursorRegistration:
                     browser_tab.quit()
                 except:
                     pass
+            if accounts_path:
+                release_accounts_file_lock(accounts_path)
                 
     def _get_account_info(self):
         """Get Account Information and Token. Dès la 2e étape (Review Settings / dashboard) le token est dispo, on essaie tout de suite."""
@@ -776,140 +863,183 @@ def _finalize_reuse_account(account_manager, email: str, translator=None) -> boo
 
 def reuse_existing_account(translator=None, min_days: int = None):
     """Réutilise un compte >= min_days jours ; remet Created At à aujourd’hui après succès."""
-    if min_days is None:
-        min_days = _default_reuse_min_days(translator)
-    try:
-        prompt = (
-            translator.get("register.reuse_min_days_prompt", min_days=min_days)
-            if translator
-            else f"Âge minimum du compte en jours (Entrée = {min_days}): "
-        )
-        raw_days = input(prompt).strip()
-        if raw_days:
-            min_days = int(raw_days)
-            if min_days < 0:
-                raise ValueError("negative days")
-    except Exception:
-        print(f"{Fore.YELLOW}{EMOJI['INFO']} Valeur invalide, utilisation de {min_days} jours.{Style.RESET_ALL}")
+    from account_manager import (
+        resolve_accounts_file_path,
+        acquire_accounts_file_lock,
+        release_accounts_file_lock,
+        backup_accounts_file,
+    )
 
-    account_manager = AccountManager(translator)
-    accounts = account_manager.get_reusable_accounts(min_days=min_days)
-    if not accounts:
-        print(f"{Fore.YELLOW}{EMOJI['INFO']} Aucun compte réutilisable (>= {min_days} jours) trouvé.{Style.RESET_ALL}")
-        return False
-
-    # Filtrer automatiquement les comptes dont le quota premium est atteint (à éviter).
-    def _parse_bool(v):
-        if isinstance(v, bool):
-            return v
-        s = str(v or "").strip().lower()
-        if s in ("true", "1", "yes", "y", "oui", "o"):
-            return True
-        if s in ("false", "0", "no", "n", "non"):
-            return False
-        return None
-
-    safe, avoided = [], []
-    for a in accounts:
-        reached = _parse_bool((a.get("usage_info") or {}).get("premium_limit_reached"))
-        (avoided if reached is True else safe).append(a)
-
-    if avoided:
-        print(
-            f"{Fore.YELLOW}{EMOJI['INFO']} {len(avoided)} compte(s) ignoré(s) car quota premium atteint (Premium Limit Reached=True).{Style.RESET_ALL}"
-        )
-    accounts = safe or accounts  # si tout est "évité", on affiche quand même tout
-
-    def _quota_str(a: dict) -> str:
-        ui = a.get("usage_info") or {}
-        pu = ui.get("premium_usage")
-        pl = ui.get("max_premium_usage")
-        bu = ui.get("basic_usage")
-        bl = ui.get("max_basic_usage")
-        pr = ui.get("premium_limit_reached")
-        # valeurs souvent string -> on affiche tel quel
-        q = []
-        if pu is not None or pl is not None:
-            q.append(f"premium {pu if pu is not None else '?'} / {pl if pl is not None else '?'}")
-        if bu is not None or bl is not None:
-            q.append(f"basic {bu if bu is not None else '?'} / {bl if bl is not None else '?'}")
-        reached = _parse_bool(pr)
-        if reached is True:
-            q.append("À ÉVITER")
-        return " | ".join(q) if q else "quota: ?"
-
-    print(f"\n{Fore.CYAN}{EMOJI['INFO']} Comptes réutilisables (>= {min_days} jours, du plus ancien au plus récent):{Style.RESET_ALL}")
-    for idx, acc in enumerate(accounts, start=1):
-        sub = (acc.get('subscription') or acc.get('usage_limit') or '—').strip() or '—'
-        age = acc.get('age_days')
-        created = acc.get('created_at')
-        created_str = created.strftime('%Y-%m-%d') if created else '?'
-        quota = _quota_str(acc)
-        print(
-            f"{Fore.GREEN}{idx}{Style.RESET_ALL}. {acc['email']} | créé: {created_str} | "
-            f"âge: {age} jours | abonnement: {sub} | {quota}"
-        )
-
-    choice = input(f"Sélectionnez un compte (1-{len(accounts)}): ").strip()
-    if not choice.isdigit() or not (1 <= int(choice) <= len(accounts)):
-        print(f"{Fore.RED}{EMOJI['ERROR']} Choix invalide.{Style.RESET_ALL}")
-        return False
-
-    selected = accounts[int(choice) - 1]
-    token = selected.get('token')
-    if not token:
-        print(f"{Fore.RED}{EMOJI['ERROR']} Token manquant pour ce compte.{Style.RESET_ALL}")
-        return False
-
-    print(f"{Fore.CYAN}{EMOJI['KEY']} Application du compte: {selected['email']}{Style.RESET_ALL}")
-    password = (selected.get("password") or "").strip()
-
-    if password:
-        start_msg = (
-            translator.get("register.reuse_chrome_logout_login", email=selected["email"])
-            if translator
-            else (
-                f"Profil Chrome : déconnexion de la session Cursor courante, "
-                f"puis connexion avec {selected['email']}…"
-            )
-        )
-        print(f"{Fore.CYAN}{EMOJI['INFO']} {start_msg}{Style.RESET_ALL}")
-        if not _chrome_logout_login_reuse_account(selected["email"], password, translator):
-            print(f"{Fore.RED}{EMOJI['ERROR']} Échec logout/login Chrome / mise à jour auth Cursor.{Style.RESET_ALL}")
-            return False
-        return _finalize_reuse_account(account_manager, selected["email"], translator)
-
-    session_result = {}
-    if not apply_cursor_session(
-        translator=translator,
-        email=selected["email"],
-        access_token=token,
-        refresh_token=token,
-        auth_type="Auth_0",
-        oauth_refresh=True,
-        strict_oauth=True,
-        session_result=session_result,
-    ):
-        msg = (
-            translator.get("register.reuse_relogin_no_password")
-            if translator
-            else "Mot de passe absent dans cursor_accounts.txt — impossible de faire logout/login Chrome."
-        )
-        print(f"{Fore.YELLOW}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
-        print(f"{Fore.RED}{EMOJI['ERROR']} Échec mise à jour auth Cursor.{Style.RESET_ALL}")
-        return False
-
-    new_token = (session_result.get("access_token") or "").strip()
-    if new_token and new_token != token.strip():
-        if account_manager.update_account_token(selected["email"], new_token):
-            msg = (
-                translator.get("register.reuse_token_updated")
+    accounts_path = resolve_accounts_file_path(translator)
+    if not acquire_accounts_file_lock(accounts_path, translator):
+        yn = (
+            input(
+                translator.get("account.file_locked_continue")
                 if translator
-                else "Jeton mis à jour dans cursor_accounts.txt après rafraîchissement OAuth."
+                else "Continuer quand même ? (oui/non) : "
             )
-            print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {msg}{Style.RESET_ALL}")
+            .strip()
+            .lower()
+        )
+        if yn not in ("oui", "o", "yes", "y"):
+            return False
+    backup_accounts_file(accounts_path, translator)
 
-    return _finalize_reuse_account(account_manager, selected["email"], translator)
+    try:
+        if min_days is None:
+            min_days = _default_reuse_min_days(translator)
+        try:
+            prompt = (
+                translator.get("register.reuse_min_days_prompt", min_days=min_days)
+                if translator
+                else f"Âge minimum du compte en jours (Entrée = {min_days}): "
+            )
+            raw_days = input(prompt).strip()
+            if raw_days:
+                min_days = int(raw_days)
+                if min_days < 0:
+                    raise ValueError("negative days")
+        except Exception:
+            print(f"{Fore.YELLOW}{EMOJI['INFO']} Valeur invalide, utilisation de {min_days} jours.{Style.RESET_ALL}")
+
+        account_manager = AccountManager(translator)
+        accounts = account_manager.get_reusable_accounts(min_days=min_days)
+        if not accounts:
+            print(f"{Fore.YELLOW}{EMOJI['INFO']} Aucun compte réutilisable (>= {min_days} jours) trouvé.{Style.RESET_ALL}")
+            return False
+
+        # Filtrer automatiquement les comptes dont le quota premium est atteint (à éviter).
+        def _parse_bool(v):
+            if isinstance(v, bool):
+                return v
+            s = str(v or "").strip().lower()
+            if s in ("true", "1", "yes", "y", "oui", "o"):
+                return True
+            if s in ("false", "0", "no", "n", "non"):
+                return False
+            return None
+
+        safe, avoided = [], []
+        for a in accounts:
+            reached = _parse_bool((a.get("usage_info") or {}).get("premium_limit_reached"))
+            (avoided if reached is True else safe).append(a)
+
+        if avoided:
+            print(
+                f"{Fore.YELLOW}{EMOJI['INFO']} {len(avoided)} compte(s) ignoré(s) car quota premium atteint (Premium Limit Reached=True).{Style.RESET_ALL}"
+            )
+        accounts = safe or accounts  # si tout est "évité", on affiche quand même tout
+
+        with_password, no_password = [], []
+        for a in accounts:
+            if (a.get("password") or "").strip():
+                with_password.append(a)
+            else:
+                no_password.append(a)
+        if no_password:
+            print(
+                f"{Fore.YELLOW}{EMOJI['INFO']} {len(no_password)} compte(s) ignoré(s) sans mot de passe (logout/login Chrome impossible).{Style.RESET_ALL}"
+            )
+        accounts = with_password
+        if not accounts:
+            print(f"{Fore.YELLOW}{EMOJI['INFO']} Aucun compte réutilisable avec mot de passe.{Style.RESET_ALL}")
+            return False
+
+        def _quota_str(a: dict) -> str:
+            ui = a.get("usage_info") or {}
+            pu = ui.get("premium_usage")
+            pl = ui.get("max_premium_usage")
+            bu = ui.get("basic_usage")
+            bl = ui.get("max_basic_usage")
+            pr = ui.get("premium_limit_reached")
+            q = []
+            if pu is not None or pl is not None:
+                q.append(f"premium {pu if pu is not None else '?'} / {pl if pl is not None else '?'}")
+            if bu is not None or bl is not None:
+                q.append(f"basic {bu if bu is not None else '?'} / {bl if bl is not None else '?'}")
+            reached = _parse_bool(pr)
+            if reached is True:
+                q.append("À ÉVITER")
+            return " | ".join(q) if q else "quota: ?"
+
+        print(f"\n{Fore.CYAN}{EMOJI['INFO']} Comptes réutilisables (>= {min_days} jours, du plus ancien au plus récent):{Style.RESET_ALL}")
+        for idx, acc in enumerate(accounts, start=1):
+            sub = (acc.get('subscription') or acc.get('usage_limit') or '—').strip() or '—'
+            age = acc.get('age_days')
+            quota = _quota_str(acc)
+            reused = ""
+            last_reused = acc.get("last_reused_at")
+            if last_reused and (datetime.now() - last_reused).days <= 14:
+                reused = (
+                    f" | {translator.get('register.reuse_recently') if translator else 'réutilisé récemment'}"
+                )
+            print(
+                f"{Fore.GREEN}{idx}{Style.RESET_ALL}. {acc['email']} | "
+                f"âge: {age} jours | abonnement: {sub} | {quota}{reused}"
+            )
+
+        choice = input(f"Sélectionnez un compte (1-{len(accounts)}): ").strip()
+        if not choice.isdigit() or not (1 <= int(choice) <= len(accounts)):
+            print(f"{Fore.RED}{EMOJI['ERROR']} Choix invalide.{Style.RESET_ALL}")
+            return False
+
+        selected = accounts[int(choice) - 1]
+        token = selected.get('token')
+        if not token:
+            print(f"{Fore.RED}{EMOJI['ERROR']} Token manquant pour ce compte.{Style.RESET_ALL}")
+            return False
+
+        print(f"{Fore.CYAN}{EMOJI['KEY']} Application du compte: {selected['email']}{Style.RESET_ALL}")
+        password = (selected.get("password") or "").strip()
+
+        if password:
+            start_msg = (
+                translator.get("register.reuse_chrome_logout_login", email=selected["email"])
+                if translator
+                else (
+                    f"Profil Chrome : déconnexion de la session Cursor courante, "
+                    f"puis connexion avec {selected['email']}…"
+                )
+            )
+            print(f"{Fore.CYAN}{EMOJI['INFO']} {start_msg}{Style.RESET_ALL}")
+            if not _chrome_logout_login_reuse_account(selected["email"], password, translator):
+                print(f"{Fore.RED}{EMOJI['ERROR']} Échec logout/login Chrome / mise à jour auth Cursor.{Style.RESET_ALL}")
+                return False
+            return _finalize_reuse_account(account_manager, selected["email"], translator)
+
+        session_result = {}
+        if not apply_cursor_session(
+            translator=translator,
+            email=selected["email"],
+            access_token=token,
+            refresh_token=token,
+            auth_type="Auth_0",
+            oauth_refresh=True,
+            strict_oauth=True,
+            session_result=session_result,
+        ):
+            msg = (
+                translator.get("register.reuse_relogin_no_password")
+                if translator
+                else "Mot de passe absent dans cursor_accounts.txt — impossible de faire logout/login Chrome."
+            )
+            print(f"{Fore.YELLOW}{EMOJI['INFO']} {msg}{Style.RESET_ALL}")
+            print(f"{Fore.RED}{EMOJI['ERROR']} Échec mise à jour auth Cursor.{Style.RESET_ALL}")
+            return False
+
+        new_token = (session_result.get("access_token") or "").strip()
+        if new_token and new_token != token.strip():
+            if account_manager.update_account_token(selected["email"], new_token):
+                msg = (
+                    translator.get("register.reuse_token_updated")
+                    if translator
+                    else "Jeton mis à jour dans cursor_accounts.txt après rafraîchissement OAuth."
+                )
+                print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {msg}{Style.RESET_ALL}")
+
+        return _finalize_reuse_account(account_manager, selected["email"], translator)
+    finally:
+        release_accounts_file_lock(accounts_path)
 
 
 if __name__ == "__main__":
