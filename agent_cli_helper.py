@@ -168,10 +168,10 @@ def load_last_saved_login_credentials(translator=None) -> Optional[Tuple[str, st
     relatif au répertoire du projet pour fonctionner quel que soit le CWD.
     """
     try:
-        from account_manager import AccountManager
+        from account_manager import AccountManager, resolve_accounts_file_path
 
         proj = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(proj, "cursor_accounts.txt")
+        path = resolve_accounts_file_path(translator)
         am = AccountManager(translator, accounts_file=path)
         accounts = am.get_saved_accounts()
         for acc in reversed(accounts):
@@ -2573,10 +2573,10 @@ def run_google_saved_login(translator=None) -> None:
     puis connexion web Cursor (authenticator sign-in, DrissionPage), sans ``agent login``.
     """
     try:
-        from account_manager import AccountManager
+        from account_manager import AccountManager, resolve_accounts_file_path
 
         proj = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(proj, "cursor_accounts.txt")
+        path = resolve_accounts_file_path(translator)
         am = AccountManager(translator, accounts_file=path)
         accounts = _dedupe_google_accounts_last_wins(am.get_saved_google_accounts())
     except Exception:

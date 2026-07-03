@@ -1,8 +1,60 @@
 import os
+import configparser
 from colorama import Fore, Style
 import re
 from datetime import datetime
 from collections import Counter
+
+from utils import get_user_documents_path
+
+
+def resolve_accounts_file_path(translator=None) -> str:
+    """
+    Résout le chemin de cursor_accounts.txt.
+    Priorité : [Account].accounts_file dans config.ini → fichier projet → Documents/.cursor-free-vip/.
+    """
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    project_file = os.path.join(project_root, "cursor_accounts.txt")
+    shared_file = os.path.join(get_user_documents_path(), ".cursor-free-vip", "cursor_accounts.txt")
+
+    try:
+        from config import get_config
+
+        cfg = get_config(translator)
+        if cfg and cfg.has_section("Account"):
+            custom = (cfg.get("Account", "accounts_file", fallback="") or "").strip()
+            if custom:
+                return os.path.normpath(os.path.expanduser(os.path.expandvars(custom)))
+    except Exception:
+        pass
+
+    if os.path.exists(project_file):
+        return project_file
+    if os.path.exists(shared_file):
+        return shared_file
+    return shared_file
+
+
+def save_accounts_file_config(path: str, translator=None) -> bool:
+    """Enregistre [Account].accounts_file dans config.ini."""
+    try:
+        from config import get_config
+
+        config = get_config(translator)
+        if not config:
+            return False
+        if not config.has_section("Account"):
+            config.add_section("Account")
+        config.set("Account", "accounts_file", (path or "").strip())
+
+        config_dir = os.path.join(get_user_documents_path(), ".cursor-free-vip")
+        os.makedirs(config_dir, exist_ok=True)
+        config_file = os.path.join(config_dir, "config.ini")
+        with open(config_file, "w", encoding="utf-8") as f:
+            config.write(f)
+        return True
+    except Exception:
+        return False
 
 # Define emoji constants
 EMOJI = {
@@ -17,13 +69,19 @@ class AccountManager:
 
     def __init__(self, translator=None, accounts_file=None):
         self.translator = translator
-        self.accounts_file = accounts_file or "cursor_accounts.txt"
+        self.accounts_file = accounts_file or resolve_accounts_file_path(translator)
         self.domain_file = 'cursor_domain.txt'
+
+    def _ensure_accounts_parent_dir(self) -> None:
+        parent = os.path.dirname(os.path.abspath(self.accounts_file))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
     
     def save_account_info(self, email, password, token, subscription, usage_info=None):
         """Enregistre le compte dans cursor_accounts.txt (abonnement via API + usage/limites via API)."""
         try:
             sub = (subscription or "").strip() or "Unknown"
+            self._ensure_accounts_parent_dir()
             with open(self.accounts_file, 'a', encoding='utf-8') as f:
                 f.write(f"\n{'='*50}\n")
                 f.write(f"Created At: {datetime.now().isoformat(timespec='seconds')}\n")
@@ -212,7 +270,7 @@ class AccountManager:
         return dict(sorted(counts.items(), key=lambda x: (-x[1], x[0].lower())))
 
     def get_reusable_accounts(self, min_days=31):
-        """Get saved accounts that are at least min_days old."""
+        """Comptes réutilisables (>= min_days), du plus ancien au plus récent."""
         now = datetime.now()
         reusable = []
         for account in self.get_saved_accounts():
@@ -224,6 +282,12 @@ class AccountManager:
             account_copy['age_days'] = age_days
             if age_days is not None and age_days >= min_days:
                 reusable.append(account_copy)
+        reusable.sort(
+            key=lambda a: (
+                a.get("created_at") is None,
+                a.get("created_at") or datetime.max,
+            )
+        )
         return reusable
 
     def _split_account_block_bodies(self, content: str) -> list:
@@ -461,3 +525,66 @@ class AccountManager:
             error_msg = self.translator.get('account.suggest_email_failed', error=str(e)) if self.translator else f'Failed to suggest email: {str(e)}'
             print(f"{Fore.RED}{EMOJI['ERROR']} {error_msg}{Style.RESET_ALL}")
             return None
+
+
+def configure_shared_accounts_file(translator=None) -> bool:
+    """Configure le chemin partagé de cursor_accounts.txt (multi-PC)."""
+    current = resolve_accounts_file_path(translator)
+    am = AccountManager(translator, accounts_file=current)
+    count = len(am.get_saved_accounts())
+
+    intro = (
+        translator.get("account.shared_file_intro")
+        if translator
+        else "Chemin du fichier comptes (cursor_accounts.txt). Mettez le même chemin sur chaque PC (OneDrive, NAS…)."
+    )
+    print(f"{Fore.CYAN}{EMOJI['INFO']} {intro}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('account.shared_file_current', path=current) if translator else f'Actuel : {current}'}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{EMOJI['INFO']} {translator.get('account.shared_file_count', count=count) if translator else f'Comptes enregistrés : {count}'}{Style.RESET_ALL}")
+
+    prompt = (
+        translator.get("account.shared_file_prompt")
+        if translator
+        else "Nouveau chemin (Entrée = garder, « auto » = défaut Documents/.cursor-free-vip) : "
+    )
+    raw = input(prompt).strip()
+    if not raw:
+        return True
+    if raw.lower() in ("auto", "defaut", "défaut", "default"):
+        new_path = ""
+    else:
+        new_path = os.path.normpath(os.path.expanduser(os.path.expandvars(raw)))
+
+    if new_path and not os.path.isfile(new_path):
+        parent = os.path.dirname(new_path)
+        if parent and not os.path.isdir(parent):
+            yn = (
+                input(
+                    translator.get("account.shared_file_create_parent")
+                    if translator
+                    else "Le dossier parent n'existe pas. Le créer ? (oui/non) : "
+                )
+                .strip()
+                .lower()
+            )
+            if yn not in ("oui", "o", "yes", "y"):
+                return False
+            os.makedirs(parent, exist_ok=True)
+
+    if not save_accounts_file_config(new_path, translator):
+        err = (
+            translator.get("account.shared_file_save_failed")
+            if translator
+            else "Impossible d'enregistrer le chemin dans config.ini."
+        )
+        print(f"{Fore.RED}{EMOJI['ERROR']} {err}{Style.RESET_ALL}")
+        return False
+
+    resolved = resolve_accounts_file_path(translator)
+    ok = (
+        translator.get("account.shared_file_saved", path=resolved)
+        if translator
+        else f"Chemin enregistré : {resolved}"
+    )
+    print(f"{Fore.GREEN}{EMOJI['SUCCESS']} {ok}{Style.RESET_ALL}")
+    return True

@@ -278,6 +278,7 @@ class Translator:
             "open_cursor": "Open Cursor",
             "quit_register_reopen": "Quit Cursor, then Register, then Reopen",
             "change_email_domain": "Change email domain",
+            "change_accounts_file": "Shared cursor_accounts.txt path (multi-PC)",
             "reuse_existing_account": "Reuse an existing account (>=31 days)",
             "open_cli_login_private": "Open Cursor CLI login URL in private browser",
             "google_saved_cli_login": "Cursor web login: pick saved @gmail / @googlemail account",
@@ -792,7 +793,8 @@ def submenu_configuration():
     print(f"{Fore.GREEN}1{Style.RESET_ALL}. {translator.get('menu.select_language')}")
     print(f"{Fore.GREEN}2{Style.RESET_ALL}. {translator.get('menu.config')}")
     print(f"{Fore.GREEN}3{Style.RESET_ALL}. {translator.get('menu.change_email_domain')}")
-    c = _submenu_input(3)
+    print(f"{Fore.GREEN}4{Style.RESET_ALL}. {translator.get('menu.change_accounts_file')}")
+    c = _submenu_input(4)
     if c == "1":
         select_language()
     elif c == "2":
@@ -801,6 +803,9 @@ def submenu_configuration():
     elif c == "3":
         import cursor_register_manual
         cursor_register_manual.change_email_domain(translator)
+    elif c == "4":
+        from account_manager import configure_shared_accounts_file
+        configure_shared_accounts_file(translator)
     elif c not in ("0", ""):
         print(f"{Fore.RED}{EMOJI['ERROR']} {translator.get('menu.invalid_choice')}{Style.RESET_ALL}")
 

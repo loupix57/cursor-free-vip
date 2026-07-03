@@ -39,6 +39,7 @@ def _log_radar_challenge(email, url: str = "") -> None:
 
 # Add global variable at the beginning of the file
 _translator = None
+_signup_skip_turnstile = False
 
 # Add global variable to track our Chrome processes
 _chrome_process_ids = []
@@ -520,8 +521,10 @@ def resolve_human_gate_fast(page, translator=None, max_attempts: int = 5) -> boo
     """Turnstile login rapide (sans handle_turnstile lourd)."""
     if not _is_human_gate_screen(page):
         return True
+    if _signup_verification_code_visible(page):
+        return True
     for attempt in range(1, max_attempts + 1):
-        if not _is_human_gate_screen(page):
+        if not _is_human_gate_screen(page) or _signup_verification_code_visible(page):
             return True
         if attempt == 1:
             print(f"{Fore.CYAN}ℹ️ Vérification humaine — clic Turnstile…{Style.RESET_ALL}")
@@ -571,17 +574,19 @@ def handle_turnstile(page, config, translator=None, quick: bool = False, auth_ga
             else:
                 print("\nHandling Turnstile verification...")
 
-        # Sur la page d'inscription / auth : tenter tout de suite de cocher une case « humain » si elle est affichée
+        # Sur authenticator : ne pas lancer Turnstile si le formulaire mot de passe est déjà affiché
         try:
             auth_url = page.url if hasattr(page, "url") else ""
-            if (
+            if "authenticator.cursor" in auth_url and _signup_password_visible(page) and not _is_human_gate_screen(page):
+                pass
+            elif (
                 "authenticator.cursor" in auth_url
                 or "sign-up" in auth_url
                 or "sign_up" in auth_url.lower()
                 or "/sign-in" in auth_url
             ):
                 if _try_click_human_verification_widgets(page, translator):
-                    time.sleep(0.4)
+                    time.sleep(0.2)
         except Exception:
             pass
 
@@ -752,6 +757,30 @@ def _is_human_gate_screen(page) -> bool:
         url = (page.url if hasattr(page, "url") else "") or ""
         if "authenticator.cursor" not in url.lower():
             return False
+        if _signup_verification_code_visible(page):
+            return False
+        if _signup_password_visible(page) and not _signup_verification_code_visible(page):
+            return False
+        try:
+            visible = page.run_js(
+                """
+                (() => {
+                  const needles = [
+                    'nous devons nous assurer que vous êtes humain',
+                    'assurer que vous êtes humain',
+                    'vérifiez que vous êtes humain',
+                    'we need to verify you are human',
+                    'verify you are human'
+                  ];
+                  const text = (document.body && document.body.innerText || '').toLowerCase();
+                  return needles.some((n) => text.includes(n));
+                })();
+                """
+            )
+            if visible is not None:
+                return bool(visible)
+        except Exception:
+            pass
         return bool(
             page.ele('xpath://*[contains(., "nous devons nous assurer que vous êtes humain")]', timeout=0.15)
             or page.ele('xpath://*[contains(., "we need to verify you are human")]', timeout=0.15)
@@ -1438,45 +1467,284 @@ def check_verification_success(page, translator=None, auth_gate: bool = False):
     except:
         return False
 
+def _signup_password_selectors():
+    return [
+        "@name=password",
+        'xpath://input[@name="password"]',
+        'xpath://input[@type="password"]',
+        'xpath://input[contains(@autocomplete,"password")]',
+        'xpath://input[contains(@placeholder,"mot de passe")]',
+        'xpath://input[contains(@placeholder,"Mot de passe")]',
+        'xpath://input[contains(@placeholder,"password")]',
+        'xpath://input[contains(@placeholder,"Password")]',
+        'xpath://input[contains(@placeholder,"Créer un mot de passe")]',
+        'xpath://input[contains(@placeholder,"Create a password")]',
+        'xpath://label[contains(., "Mot de passe")]/following::input[1]',
+        'xpath://label[contains(., "Password")]/following::input[1]',
+    ]
+
+
+def _signup_on_password_url(page) -> bool:
+    try:
+        ulo = (page.url or "").lower()
+        return "authenticator.cursor" in ulo and "password" in ulo
+    except Exception:
+        return False
+
+
+def _signup_password_visible(page) -> bool:
+    if _signup_on_password_url(page):
+        try:
+            found = page.run_js(
+                """
+                (() => {
+                  const el = document.querySelector(
+                    'input[type="password"], input[name="password"], input[autocomplete*="password"]'
+                  );
+                  if (!el) return false;
+                  const r = el.getBoundingClientRect();
+                  return r.width > 2 && r.height > 2;
+                })();
+                """
+            )
+            if found:
+                return True
+        except Exception:
+            pass
+    for sel in _signup_password_selectors():
+        try:
+            if page.ele(sel, timeout=0.22):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _signup_verification_code_visible(page) -> bool:
+    try:
+        if page.ele("@data-index=0", timeout=0.2):
+            return True
+        return bool(
+            page.run_js(
+                """
+                (() => {
+                  if (document.querySelector('[data-index="0"]')) return true;
+                  const inputs = document.querySelectorAll('input[maxlength="1"], input[inputmode="numeric"]');
+                  return inputs && inputs.length >= 6;
+                })();
+                """
+            )
+        )
+    except Exception:
+        return False
+
+
+def _resolve_post_password_gate(page, translator=None, max_seconds: float = 8.0) -> bool:
+    """Court passage Turnstile après MDP — ne bloque pas l'étape code e-mail."""
+    if _signup_skip_turnstile:
+        return True
+    deadline = time.time() + max_seconds
+    turnstile_passes = 0
+    while time.time() < deadline:
+        if _signup_verification_code_visible(page):
+            return True
+        if not _is_human_gate_screen(page):
+            if not _signup_password_visible(page):
+                return True
+        elif turnstile_passes < 2:
+            resolve_human_gate_fast(page, translator, max_attempts=2)
+            turnstile_passes += 1
+        else:
+            break
+        time.sleep(0.12)
+    return True
+
+
+def _wait_for_verification_code_step(page, config, translator=None, deadline_seconds: float = 55.0) -> bool:
+    """Attend les champs code à 6 chiffres ; Turnstile limité si l'écran humain bloque."""
+    msg = (
+        translator.get("register.waiting_for_verification_code")
+        if translator
+        else "Waiting for verification code page…"
+    )
+    print(f"{Fore.CYAN}🔄 {msg}{Style.RESET_ALL}")
+    if _signup_skip_turnstile:
+        hint = (
+            translator.get("register.manual_human_if_needed")
+            if translator
+            else "Si une vérification humaine s'affiche, validez-la dans le navigateur."
+        )
+        print(f"{Fore.YELLOW}ℹ️ {hint}{Style.RESET_ALL}")
+        deadline_seconds = max(deadline_seconds, 120.0)
+    deadline = time.time() + deadline_seconds
+    turnstile_passes = 0
+    while time.time() < deadline:
+        if _signup_verification_code_visible(page):
+            return True
+        if not _signup_skip_turnstile and _is_human_gate_screen(page) and turnstile_passes < 5:
+            resolve_human_gate_fast(page, translator, max_attempts=2)
+            turnstile_passes += 1
+        time.sleep(0.15)
+    return _signup_verification_code_visible(page)
+
+
+def _finish_signup_after_code_entry(browser_tab, config, translator, controller):
+    """Après saisie du code : onboarding (Turnstile auto sauf flux 1→1)."""
+    time.sleep(get_random_wait_time(config, "verification_success_wait"))
+    if _signup_skip_turnstile:
+        time.sleep(1.5)
+    else:
+        for turnstile_attempt in range(3):
+            if handle_turnstile(browser_tab, config, translator):
+                break
+            if turnstile_attempt < 2:
+                time.sleep(5)
+        else:
+            log.warning("Turnstile verification failed after code entry")
+            if translator:
+                print(
+                    f"{Fore.RED}❌ {translator.get('register.final_verification_failed') if translator else 'Dernière vérification échouée'}{Style.RESET_ALL}"
+                )
+            return False, None
+    if translator:
+        print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
+    time.sleep(get_random_wait_time(config, "verification_retry_wait"))
+    if run_onboarding_and_go_to_settings(
+        browser_tab,
+        config,
+        translator,
+        getattr(controller, "email_address", "") or "",
+    ):
+        return True, browser_tab
+    return False, None
+
+
+def _wait_for_signup_password_step(page, config, translator=None, deadline_seconds: float = 50.0) -> bool:
+    """Attend la page mot de passe — aucun Turnstile (réservé après saisie + Continuer)."""
+    msg = (
+        translator.get("register.waiting_for_password_page")
+        if translator
+        else "Waiting for password step…"
+    )
+    print(f"{Fore.CYAN}ℹ️ {msg}{Style.RESET_ALL}")
+    deadline = time.time() + deadline_seconds
+    while time.time() < deadline:
+        if _signup_password_visible(page):
+            return True
+        if _signup_verification_code_visible(page):
+            return False
+        if _signup_on_password_url(page):
+            return True
+        time.sleep(0.1)
+    return _signup_password_visible(page) or _signup_on_password_url(page)
+
+
 def generate_password(length=12):
     """Generate random password"""
     chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
     return ''.join(random.choices(chars, k=length))
 
 def fill_password(page, password: str, config, translator=None):
-    """
-    Fill password form
-    """
+    """Saisie mot de passe + envoi, puis Turnstile uniquement après."""
     try:
         print(f"{Fore.CYAN}🔑 {translator.get('register.setting_password') if translator else 'Setting password'}{Style.RESET_ALL}")
-        
-        # Fill password
-        password_input = page.ele("@name=password")
-        print(f"{Fore.CYAN}🔑 {translator.get('register.setting_on_password')}: {password}{Style.RESET_ALL}")
-        if password_input:
-            password_input.input(password)
 
-        # Click submit button
-        submit_button = page.ele("@type=submit")
-        if submit_button:
-            submit_button.click()
-            time.sleep(get_random_wait_time(config, 'submit_wait'))
-            
+        el = None
+        for sel in _signup_password_selectors():
+            try:
+                el = page.ele(sel, timeout=0.45)
+                if el:
+                    break
+            except Exception:
+                continue
+        if not el:
+            if _signup_on_password_url(page):
+                try:
+                    filled = page.run_js(
+                        """
+                        (pwd) => {
+                          const el = document.querySelector(
+                            'input[type="password"], input[name="password"], input[autocomplete*="password"]'
+                          );
+                          if (!el) return false;
+                          el.focus();
+                          el.value = pwd;
+                          el.dispatchEvent(new Event('input', { bubbles: true }));
+                          el.dispatchEvent(new Event('change', { bubbles: true }));
+                          return true;
+                        }
+                        """,
+                        password,
+                    )
+                    if filled:
+                        el = True
+                except Exception:
+                    pass
+        if not el:
+            if translator:
+                print(f"{Fore.RED}❌ {translator.get('register.password_field_not_found')}{Style.RESET_ALL}")
+            return False
+
+        print(f"{Fore.CYAN}🔑 {translator.get('register.setting_on_password') if translator else 'Setting password'}: {password}{Style.RESET_ALL}")
+        if el is not True:
+            try:
+                el.click()
+                el.clear()
+                el.input(password)
+            except Exception as e:
+                raise RuntimeError(str(e)) from e
+        time.sleep(0.05)
+
+        clicked = False
+        for sel in (
+            'xpath://button[normalize-space()="Continuer"]',
+            'xpath://button[normalize-space()="Continue"]',
+            'xpath://button[contains(normalize-space(.), "Continuer")]',
+            'xpath://button[contains(normalize-space(.), "Continue")]',
+            "@type=submit",
+            'xpath://button[@type="submit"]',
+        ):
+            try:
+                btn = page.ele(sel, timeout=0.35)
+                if btn:
+                    btn.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+        if not clicked:
+            try:
+                page.actions.key_down("Enter").key_up("Enter")
+            except Exception:
+                pass
+
+        wait = max(0.2, min(float(get_random_wait_time(config, "submit_wait")), 0.6))
+        time.sleep(wait)
         print(f"{Fore.GREEN}✅ {translator.get('register.password_submitted') if translator else 'Password submitted'}{Style.RESET_ALL}")
-        
+
+        if not _signup_skip_turnstile:
+            msg = (
+                translator.get("register.turnstile_after_password")
+                if translator
+                else "Password submitted — Turnstile if shown…"
+            )
+            print(f"{Fore.CYAN}ℹ️ {msg}{Style.RESET_ALL}")
+            _resolve_post_password_gate(page, translator, max_seconds=8.0)
         return True
-        
+
     except Exception as e:
         print(f"{Fore.RED}❌ {translator.get('register.password_error', error=str(e)) if translator else f'Error setting password: {str(e)}'}{Style.RESET_ALL}")
-
         return False
 
 def handle_verification_code(browser_tab, email_tab, controller, config, translator=None):
     """Handle verification code"""
     try:
         log.info("handle_verification_code: email_tab=%s", "yes" if email_tab else "manual")
-        if translator:
-            print(f"\n{Fore.CYAN}🔄 {translator.get('register.waiting_for_verification_code')}{Style.RESET_ALL}")
+
+        if not _wait_for_verification_code_step(browser_tab, config, translator):
+            if translator:
+                print(f"{Fore.RED}❌ {translator.get('register.verification_timeout')}{Style.RESET_ALL}")
+            return False, None
             
         # Check if using manual input verification code
         if hasattr(controller, 'get_verification_code') and email_tab is None:  # Manual mode
@@ -1489,32 +1757,12 @@ def handle_verification_code(browser_tab, email_tab, controller, config, transla
                     time.sleep(get_random_wait_time(config, 'verification_code_input'))
                 
                 print(f"{translator.get('register.verification_success')}")
-                # Attendre que la page valide le code avant Turnstile (évite échec immédiat)
-                time.sleep(get_random_wait_time(config, 'verification_success_wait'))
-                time.sleep(2)  # délai supplémentaire après code manuel
-                
-                # Handle last Turnstile verification avec retries (la page peut mettre du temps à afficher le widget)
-                for turnstile_attempt in range(3):
-                    if handle_turnstile(browser_tab, config, translator):
-                        if translator:
-                            print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
-                        time.sleep(get_random_wait_time(config, 'verification_retry_wait'))
-                        if run_onboarding_and_go_to_settings(
-                            browser_tab,
-                            config,
-                            translator,
-                            getattr(controller, "email_address", "") or "",
-                        ):
-                            return True, browser_tab
-                        return False, None
-                    if turnstile_attempt < 2:
-                        time.sleep(5)  # attendre avant nouvel essai
-                log.warning("Turnstile verification failed after manual code")
-                return False, None
+                if _signup_skip_turnstile:
+                    time.sleep(2)
+                return _finish_signup_after_code_entry(browser_tab, config, translator, controller)
                 
         # Automatic verification code logic
         elif email_tab:
-            print(f"{Fore.CYAN}🔄 {translator.get('register.waiting_for_verification_code')}{Style.RESET_ALL}")
             time.sleep(get_random_wait_time(config, 'email_check_initial_wait'))
 
             # Use existing email_tab to refresh email
@@ -1533,29 +1781,7 @@ def handle_verification_code(browser_tab, email_tab, controller, config, transla
                     
                     if translator:
                         print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
-                    time.sleep(get_random_wait_time(config, 'verification_success_wait'))
-                    
-                    # Handle last Turnstile verification
-                    if handle_turnstile(browser_tab, config, translator):
-                        if translator:
-                            print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
-                        time.sleep(get_random_wait_time(config, 'verification_retry_wait'))
-                        if run_onboarding_and_go_to_settings(
-                            browser_tab,
-                            config,
-                            translator,
-                            getattr(controller, "email_address", "") or "",
-                        ):
-                            return True, browser_tab
-                        return False, None
-                        
-                    else:
-                        log.warning("Turnstile verification failed after email code")
-                        if translator:
-                            print(f"{Fore.RED}❌ {translator.get('register.final_verification_failed') if translator else 'Dernière vérification échouée'}{Style.RESET_ALL}")
-                        else:
-                            print("Dernière vérification échouée")
-                        return False, None
+                    return _finish_signup_after_code_entry(browser_tab, config, translator, controller)
                         
             # Get verification code, set timeout (polling)
             verification_code = None
@@ -1596,26 +1822,7 @@ def handle_verification_code(browser_tab, email_tab, controller, config, transla
                 
                 if translator:
                     print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
-                time.sleep(get_random_wait_time(config, 'verification_success_wait'))
-                
-                # Handle last Turnstile verification
-                if handle_turnstile(browser_tab, config, translator):
-                    if translator:
-                        print(f"{Fore.GREEN}✅ {translator.get('register.verification_success')}{Style.RESET_ALL}")
-                    time.sleep(get_random_wait_time(config, 'verification_retry_wait'))
-                    if run_onboarding_and_go_to_settings(
-                        browser_tab,
-                        config,
-                        translator,
-                        getattr(controller, "email_address", "") or "",
-                    ):
-                        return True, browser_tab
-                    return False, None
-                    
-                else:
-                    if translator:
-                        print(f"{Fore.RED}❌ {translator.get('register.verification_failed')}{Style.RESET_ALL}")
-                    return False, None
+                return _finish_signup_after_code_entry(browser_tab, config, translator, controller)
                 
             return False, None
             
@@ -1674,11 +1881,13 @@ def handle_sign_in(browser_tab, email, password, translator=None):
         print(f"{Fore.RED}Login process error: {str(e)}{Style.RESET_ALL}")
         return False
 
-def main(email=None, password=None, first_name=None, last_name=None, email_tab=None, controller=None, translator=None, use_chrome_public_profile=False):
+def main(email=None, password=None, first_name=None, last_name=None, email_tab=None, controller=None, translator=None, use_chrome_public_profile=False, skip_turnstile=False):
     """Main function, can receive account information, email tab, and translator"""
     global _translator
     global _chrome_process_ids
+    global _signup_skip_turnstile
     _translator = translator  # Save to global variable
+    _signup_skip_turnstile = bool(skip_turnstile)
     _chrome_process_ids = []  # Reset the process IDs list
     
     signal.signal(signal.SIGINT, signal_handler)
@@ -1718,33 +1927,25 @@ def main(email=None, password=None, first_name=None, last_name=None, email_tab=N
         if fill_signup_form(page, first_name, last_name, email, config, translator):
             if translator:
                 print(f"\n{Fore.GREEN}✅ {translator.get('register.form_submitted')}{Style.RESET_ALL}")
-            
-            # Handle first Turnstile verification
-            if handle_turnstile(page, config, translator):
-                if translator:
-                    print(f"\n{Fore.GREEN}✅ {translator.get('register.first_verification_passed')}{Style.RESET_ALL}")
-                
-                # Fill password
-                if fill_password(page, password, config, translator):
-                    if translator:
-                        print(f"\n{Fore.CYAN}🔄 {translator.get('register.waiting_for_second_verification')}{Style.RESET_ALL}")
-                                        
-                    # Handle second Turnstile verification
-                    if handle_turnstile(page, config, translator):
-                        if translator:
-                            print(f"\n{Fore.CYAN}🔄 {translator.get('register.waiting_for_verification_code')}{Style.RESET_ALL}")
-                        if handle_verification_code(page, email_tab, controller, config, translator):
-                            success = True
-                            return True, page
-                        else:
-                            print(f"\n{Fore.RED}❌ {translator.get('register.verification_code_processing_failed') if translator else 'Verification code processing failed'}{Style.RESET_ALL}")
-                    else:
-                        print(f"\n{Fore.RED}❌ {translator.get('register.second_verification_failed') if translator else 'Second verification failed'}{Style.RESET_ALL}")
-                else:
-                    print(f"\n{Fore.RED}❌ {translator.get('register.second_verification_failed') if translator else 'Second verification failed'}{Style.RESET_ALL}")
+
+            if not _wait_for_signup_password_step(page, config, translator):
+                print(
+                    f"\n{Fore.RED}❌ {translator.get('register.password_page_timeout') if translator else 'Password step not reached'}{Style.RESET_ALL}"
+                )
+                return False, None
+
+            if fill_password(page, password, config, translator):
+                if handle_verification_code(page, email_tab, controller, config, translator):
+                    success = True
+                    return True, page
+                print(
+                    f"\n{Fore.RED}❌ {translator.get('register.verification_code_processing_failed') if translator else 'Verification code processing failed'}{Style.RESET_ALL}"
+                )
             else:
-                print(f"\n{Fore.RED}❌ {translator.get('register.first_verification_failed') if translator else 'First verification failed'}{Style.RESET_ALL}")
-        
+                print(
+                    f"\n{Fore.RED}❌ {translator.get('register.password_error', error='submit') if translator else 'Password step failed'}{Style.RESET_ALL}"
+                )
+
         return False, None
         
     except Exception as e:

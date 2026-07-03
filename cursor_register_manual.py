@@ -41,10 +41,13 @@ class CursorRegistration:
         translator=None,
         external_personal_mail: bool = False,
         oauth_refresh_on_save: bool = False,
+        skip_turnstile: bool = False,
     ):
         self.translator = translator
         # True = Proton / autre boîte perso : pas de récup auto du code, saisie manuelle uniquement
         self.external_personal_mail = bool(external_personal_mail)
+        # True = flux 1→1 : pas de clic Turnstile auto pendant l'inscription
+        self.skip_turnstile = bool(skip_turnstile)
         # Set to display mode
         os.environ['BROWSER_HEADLESS'] = 'False'
         self.browser = None
@@ -263,6 +266,7 @@ class CursorRegistration:
                 controller=self,  # Pass self instead of self.controller
                 translator=self.translator,
                 use_chrome_public_profile=False,
+                skip_turnstile=self.skip_turnstile,
             )
             
             if result:
@@ -293,6 +297,33 @@ class CursorRegistration:
                         self.translator,
                         update_existing=True,
                         use_chrome_public_profile=True,
+                    ):
+                        print(
+                            f"{Fore.YELLOW}{EMOJI['INFO']} "
+                            f"{self.translator.get('register.external_mail_chrome_sync_failed') if self.translator else 'Chrome sync failed — account saved locally anyway.'}"
+                            f"{Style.RESET_ALL}"
+                        )
+
+                # 1→1 : après inscription complète, connexion Chrome comme 1→4
+                elif success and not self.external_personal_mail and self.password:
+                    if browser_tab:
+                        try:
+                            browser_tab.quit()
+                        except Exception:
+                            pass
+                        browser_tab = None
+
+                    start_msg = (
+                        self.translator.get("register.reuse_chrome_logout_login", email=self.email_address)
+                        if self.translator
+                        else (
+                            f"Profil Chrome : déconnexion de la session Cursor courante, "
+                            f"puis connexion avec {self.email_address}…"
+                        )
+                    )
+                    print(f"{Fore.CYAN}{EMOJI['INFO']} {start_msg}{Style.RESET_ALL}")
+                    if not _chrome_logout_login_reuse_account(
+                        self.email_address, self.password, self.translator
                     ):
                         print(
                             f"{Fore.YELLOW}{EMOJI['INFO']} "
@@ -472,7 +503,7 @@ def main(translator=None, wait_for_enter: bool = True):
     print(f"{Fore.CYAN}{EMOJI['START']} {translator.get('register.title')}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
 
-    registration = CursorRegistration(translator)
+    registration = CursorRegistration(translator, skip_turnstile=True)
     ok = registration.start()
 
     print(f"\n{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
@@ -807,12 +838,17 @@ def reuse_existing_account(translator=None, min_days: int = None):
             q.append("À ÉVITER")
         return " | ".join(q) if q else "quota: ?"
 
-    print(f"\n{Fore.CYAN}{EMOJI['INFO']} Comptes réutilisables (>= {min_days} jours):{Style.RESET_ALL}")
+    print(f"\n{Fore.CYAN}{EMOJI['INFO']} Comptes réutilisables (>= {min_days} jours, du plus ancien au plus récent):{Style.RESET_ALL}")
     for idx, acc in enumerate(accounts, start=1):
         sub = (acc.get('subscription') or acc.get('usage_limit') or '—').strip() or '—'
         age = acc.get('age_days')
+        created = acc.get('created_at')
+        created_str = created.strftime('%Y-%m-%d') if created else '?'
         quota = _quota_str(acc)
-        print(f"{Fore.GREEN}{idx}{Style.RESET_ALL}. {acc['email']} | âge: {age} jours | abonnement: {sub} | {quota}")
+        print(
+            f"{Fore.GREEN}{idx}{Style.RESET_ALL}. {acc['email']} | créé: {created_str} | "
+            f"âge: {age} jours | abonnement: {sub} | {quota}"
+        )
 
     choice = input(f"Sélectionnez un compte (1-{len(accounts)}): ").strip()
     if not choice.isdigit() or not (1 <= int(choice) <= len(accounts)):

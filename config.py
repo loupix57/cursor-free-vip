@@ -116,6 +116,8 @@ def setup_config(translator=None):
             'Account': {
                 # Âge minimum pour « Réutiliser un compte existant » (menu inscription 4).
                 'reuse_min_days': '31',
+                # Chemin partagé du fichier comptes (OneDrive, NAS, etc.). Vide = auto.
+                'accounts_file': '',
             },
             'Chrome': {
                 # Profil Chrome public utilisé pour logout/login Cursor web (flux 1→2, 1→4).

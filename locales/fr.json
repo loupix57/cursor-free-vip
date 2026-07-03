@@ -22,6 +22,7 @@
         "coming_soon": "Bientôt",
         "fixed_soon": "Bientôt Corrigé",
         "change_email_domain": "Changer le nom de domaine e-mail",
+        "change_accounts_file": "Chemin partagé cursor_accounts.txt (multi-PC)",
         "reuse_existing_account": "Réutiliser un compte existant (>=31 jours)",
         "config": "Afficher la Configuration",
         "delete_google_account": "Supprimer le Compte Google Cursor",
@@ -365,6 +366,11 @@
         "config_option_added": "Option de Configuration Ajoutée : {option}",
         "config_updated": "Configuration Mise à Jour",
         "password_submitted": "Mot de Passe Soumis",
+        "waiting_for_password_page": "Attente de la page mot de passe…",
+        "turnstile_after_password": "Mot de passe envoyé — vérification humaine (Turnstile) si affichée…",
+        "manual_human_if_needed": "Si une vérification humaine s'affiche, validez-la vous-même dans le navigateur.",
+        "password_field_not_found": "Champ mot de passe introuvable sur la page.",
+        "password_page_timeout": "La page mot de passe n’est pas apparue à temps.",
         "total_usage": "Utilisation Totale : {usage}",
         "setting_on_password": "Définir le Mot de Passe",
         "getting_code": "Obtention du Code de Vérification, Nouvelle Tentative dans 60s",
@@ -1081,6 +1087,15 @@
         "description": "Cet outil modifie le fichier workbench.desktop.main.js pour contourner la limite de jeton",
         "press_enter": "Appuyez sur Entrée pour continuer ...",
         "title": "Outil de limite de jeton de contournement"
+    },
+    "account": {
+        "shared_file_intro": "Chemin du fichier comptes (cursor_accounts.txt). Utilisez le même chemin sur chaque PC (OneDrive, NAS, dossier réseau…).",
+        "shared_file_current": "Fichier actuel : {path}",
+        "shared_file_count": "Comptes enregistrés : {count}",
+        "shared_file_prompt": "Nouveau chemin (Entrée = garder, « auto » = défaut Documents/.cursor-free-vip) : ",
+        "shared_file_create_parent": "Le dossier parent n'existe pas. Le créer ? (oui/non) : ",
+        "shared_file_save_failed": "Impossible d'enregistrer le chemin dans config.ini.",
+        "shared_file_saved": "Chemin enregistré : {path}"
     },
     "tempmail": {
         "no_email": "Aucun e-mail de vérification du curseur trouvé",

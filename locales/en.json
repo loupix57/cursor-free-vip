@@ -25,6 +25,7 @@
         "coming_soon": "Coming Soon",
         "fixed_soon": "Fixed Soon",
         "change_email_domain": "Change email domain",
+        "change_accounts_file": "Shared cursor_accounts.txt path (multi-PC)",
         "reuse_existing_account": "Reuse an existing account (>=31 days)",
         "config": "Show Config",
         "delete_google_account": "Delete Cursor Google Account",
@@ -394,6 +395,11 @@
         "config_option_added": "Config Option Added: {option}",
         "config_updated": "Config Updated",
         "password_submitted": "Password Submitted",
+        "waiting_for_password_page": "Waiting for password step…",
+        "turnstile_after_password": "Password submitted — human verification (Turnstile) if shown…",
+        "manual_human_if_needed": "If human verification appears, complete it yourself in the browser.",
+        "password_field_not_found": "Password field not found on page.",
+        "password_page_timeout": "Password step did not appear in time.",
         "total_usage": "Total Usage: {usage}",
         "setting_on_password": "Setting Password",
         "getting_code": "Getting Verification Code, Will Try in 60s",
@@ -1069,6 +1075,15 @@
         "auth_updated_successfully": "Authentication information updated successfully!",
         "auth_update_failed": "Failed to update authentication information",
         "error": "Error: {error}"
+    },
+    "account": {
+        "shared_file_intro": "Accounts file path (cursor_accounts.txt). Use the same path on each PC (OneDrive, NAS, network folder…).",
+        "shared_file_current": "Current file: {path}",
+        "shared_file_count": "Saved accounts: {count}",
+        "shared_file_prompt": "New path (Enter = keep, \"auto\" = default Documents/.cursor-free-vip): ",
+        "shared_file_create_parent": "Parent folder does not exist. Create it? (yes/no): ",
+        "shared_file_save_failed": "Could not save path to config.ini.",
+        "shared_file_saved": "Path saved: {path}"
     },
     "tempmail": {
         "check_email_failed": "Check email failed: {error}",
